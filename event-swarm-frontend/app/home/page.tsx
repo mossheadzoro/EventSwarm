@@ -98,7 +98,7 @@ export default function HomePage() {
               )}
 
               <Link href="/dashboard">
-                <Button variant="default">Launch Dashboard</Button>
+                <Button variant="default" className="bg-[#00e5ff] p-4">Launch Dashboard</Button>
               </Link>
             </div>
           </nav>
@@ -127,7 +127,7 @@ export default function HomePage() {
 
           {/* Action Row */}
           <div className="flex flex-col sm:flex-row space-y-4 sm:space-y-0 sm:space-x-4 mt-8 mb-32">
-            <Button variant="outline" className="px-8 flex items-center">
+            <Button variant="outline" className="px-8 py-4 bg-blue-400 flex items-center">
               <Play className="text-white w-4 h-4 mr-2" fill="currentColor" />
               Watch Demo
             </Button>
