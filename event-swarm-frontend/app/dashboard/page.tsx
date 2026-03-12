@@ -1,10 +1,10 @@
 
 
 
-"use client";
+"use client"
 
 import React, { useEffect, useRef, useState } from "react";
-import Lenis from "@studio-freight/lenis";
+
 
 import { DashboardHeader } from "@/components/dashboard/header";
 import { SwarmEngine } from "@/components/dashboard/swarm-engine";
@@ -18,7 +18,7 @@ import {
 
 import { FloatingVoice } from "@/components/dashboard/voice-orb";
 import { socket } from "@/lib/socket";
-import WidgetBirds from "@/components/dashboard/widget-bird";
+
 import SwarmBackground from "@/components/dashboard/swarm-background";
 
 export default function DashboardPage() {
@@ -50,18 +50,23 @@ export default function DashboardPage() {
   }, [])
 
   // LENIS Smooth Scroll
-  useEffect(() => {
+ useEffect(() => {
 
-    if (!widgetContainerRef.current) return
+  if (!widgetContainerRef.current) return
 
-    const lenis = new Lenis({
-      wrapper: widgetContainerRef.current,
-      content: widgetContainerRef.current,
+  let lenis:any
+
+  async function init() {
+    const Lenis = (await import("@studio-freight/lenis")).default
+
+    lenis = new Lenis({
+      wrapper: widgetContainerRef.current as HTMLElement,
+      content: widgetContainerRef.current as HTMLElement,
       smoothWheel: true,
       lerp: 0.08
     })
 
-    function raf(time:any){
+    function raf(time:number){
       lenis.raf(time)
       requestAnimationFrame(raf)
     }
@@ -69,10 +74,13 @@ export default function DashboardPage() {
     requestAnimationFrame(raf)
 
     lenisRef.current = lenis
+  }
 
-    return ()=>lenis.destroy()
+  init()
 
-  }, [])
+  return ()=>lenis?.destroy()
+
+},[])
 
   // Curved Scroll Animation
   useEffect(() => {
