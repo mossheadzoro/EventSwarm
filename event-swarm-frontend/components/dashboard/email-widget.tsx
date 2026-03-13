@@ -24,7 +24,7 @@ export default function EmailWidget() {
       Papa.parse(file, {
         header: true,
         complete: (results) => {
-          const emails = results.data
+          const emails = results.data 
             .map((row: any) => row.email)
             .filter(Boolean);
 
