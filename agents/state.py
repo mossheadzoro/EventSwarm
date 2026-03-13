@@ -12,7 +12,7 @@ class AgentState(TypedDict):
     sender: str
 
     # ── Workflow phase ──
-    phase: str  # hype | schedule_review | email_draft | done | reschedule
+    phase: str  
 
     # ── Event metadata (set once at setup) ──
     event_name: Optional[str]

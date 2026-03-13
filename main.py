@@ -9,7 +9,6 @@ if _base_dir not in sys.path:
 
 from fastapi import FastAPI, UploadFile, File, Form
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import HTMLResponse
 from pydantic import BaseModel
 from langchain_core.messages import HumanMessage, SystemMessage
 
@@ -258,15 +257,10 @@ def reset_thread(req: ChatRequest):
     except Exception as e:
         return {"status": "error", "message": str(e)}
 
-
 # ─────────────────────────────────────────────
-# Frontend
+# Health Check
 # ─────────────────────────────────────────────
 
-@app.get("/", response_class=HTMLResponse)
-def serve_frontend():
-    fp = os.path.join(_base_dir, "index.html")
-    if os.path.exists(fp):
-        with open(fp, "r", encoding="utf-8") as f:
-            return f.read()
-    return HTMLResponse(content="<h1>index.html not found</h1>", status_code=404)
+@app.get("/")
+def root():
+    return {"status": "ok", "service": "EventSwarm API", "version": "2.0"}

@@ -3,6 +3,7 @@ import base64
 import json
 import re
 from email.message import EmailMessage
+from datetime import datetime
 
 import pandas as pd
 from langchain.tools import tool
@@ -15,12 +16,11 @@ from googleapiclient.errors import HttpError
 
 
 # ─────────────────────────────────────────────
-# Gmail Helper (from test_gmail.py)
+# Gmail Helper
 # ─────────────────────────────────────────────
 
 GMAIL_SCOPES = ["https://www.googleapis.com/auth/gmail.compose"]
 
-# Resolve paths relative to the project root (one level up from agents/)
 _PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 _TOKEN_PATH = os.path.join(_PROJECT_ROOT, "token.json")
 _CREDS_PATH = os.path.join(_PROJECT_ROOT, "credentials.json")
@@ -45,6 +45,91 @@ def _get_gmail_service():
 
 
 # ─────────────────────────────────────────────
+# Schedule Helpers (conflict detection)
+# ─────────────────────────────────────────────
+
+def _parse_time(t_str: str):
+    """Parse a time string like '10:00' or '9:30' into minutes since midnight."""
+    t_str = t_str.strip()
+    for fmt in ("%H:%M", "%H.%M", "%I:%M %p", "%I:%M%p"):
+        try:
+            t = datetime.strptime(t_str, fmt)
+            return t.hour * 60 + t.minute
+        except ValueError:
+            continue
+    return None
+
+
+def _detect_conflicts(records: list[dict]) -> list[str]:
+    """Detect overlapping time slots in schedule records."""
+    parsed = []
+    for r in records:
+        start = _parse_time(str(r.get("start_time", "")))
+        end = _parse_time(str(r.get("end_time", "")))
+        session = str(r.get("session", "Unknown"))
+        if start is not None and end is not None:
+            parsed.append({"start": start, "end": end, "session": session})
+
+    # Sort by start time
+    parsed.sort(key=lambda x: x["start"])
+
+    conflicts = []
+    for i in range(len(parsed) - 1):
+        curr = parsed[i]
+        nxt = parsed[i + 1]
+        if curr["end"] > nxt["start"]:
+            curr_start_str = f"{curr['start'] // 60}:{curr['start'] % 60:02d}"
+            curr_end_str = f"{curr['end'] // 60}:{curr['end'] % 60:02d}"
+            nxt_start_str = f"{nxt['start'] // 60}:{nxt['start'] % 60:02d}"
+            nxt_end_str = f"{nxt['end'] // 60}:{nxt['end'] % 60:02d}"
+            conflicts.append(
+                f"⚠️ CONFLICT: '{curr['session']}' ({curr_start_str}-{curr_end_str}) "
+                f"overlaps with '{nxt['session']}' ({nxt_start_str}-{nxt_end_str})"
+            )
+    return conflicts
+
+
+def _format_schedule(records: list[dict]) -> str:
+    """Format schedule records as a human-readable numbered list."""
+    lines = []
+    for i, r in enumerate(records, 1):
+        start = str(r.get("start_time", "")).strip()
+        end = str(r.get("end_time", "")).strip()
+        session = str(r.get("session", "")).strip()
+        speaker = str(r.get("speaker", "")).strip()
+        line = f"{i}. {start}-{end} — {session}"
+        if speaker and speaker != "nan":
+            line += f" (Speaker: {speaker})"
+        lines.append(line)
+    return "\n".join(lines)
+
+
+# ─────────────────────────────────────────────
+# Engagement Predictor (singleton)
+# ─────────────────────────────────────────────
+
+_predictor = None
+
+
+def _get_predictor():
+    """Lazy-load the engagement predictor — trains on first use."""
+    global _predictor
+    if _predictor is not None:
+        return _predictor
+
+    from engagement_predictor import GeneralEngagementPredictor
+    from syn_datagen import generate_general_data
+
+    data_path = os.path.join(_PROJECT_ROOT, "general_engagement_data.csv")
+    if not os.path.exists(data_path):
+        generate_general_data(filename=data_path)
+
+    _predictor = GeneralEngagementPredictor()
+    _predictor.train(pd.read_csv(data_path))
+    return _predictor
+
+
+# ─────────────────────────────────────────────
 # Content Strategist Tools
 # ─────────────────────────────────────────────
 
@@ -54,13 +139,21 @@ def generate_taglines(event_name: str, event_type: str, event_date: str) -> str:
     Generates a set of promotional taglines / social-media post ideas for
     the given event. Returns draft suggestions for the user to review.
     """
-    taglines = [
+    import random
+
+    pool = [
         f"🚀 {event_name} is coming on {event_date}! Are you ready to innovate?",
         f"🔥 The ultimate {event_type} experience — {event_name}. Mark your calendars!",
         f"💡 Build. Learn. Connect. Join {event_name} on {event_date}!",
         f"⚡ Don't miss {event_name} — where ideas become reality!",
         f"🎯 {event_name}: The {event_type} event of the year. {event_date}.",
+        f"🌟 Ready to level up? {event_name} ({event_type}) drops {event_date}!",
+        f"🏆 Join the brightest minds at {event_name} — {event_date}!",
+        f"🎉 {event_name} is HERE! A {event_type} you won't want to miss.",
+        f"💥 {event_date} — save the date for {event_name}, the {event_type} of the year!",
+        f"🧠 Innovate. Collaborate. Dominate. {event_name} awaits on {event_date}.",
     ]
+    taglines = random.sample(pool, min(3, len(pool)))
     return "Here are the draft taglines:\n" + "\n".join(
         f"{i+1}. {t}" for i, t in enumerate(taglines)
     )
@@ -69,18 +162,25 @@ def generate_taglines(event_name: str, event_type: str, event_date: str) -> str:
 @tool
 def analyze_engagement_data(platform: str) -> str:
     """
-    Analyzes historical engagement data for the given platform and returns
-    recommended optimal posting times.
+    Analyzes historical engagement data using an ML model to recommend
+    the best time to post content for maximum engagement.
+    Call this to get data-driven posting time recommendations.
     """
-    recommendations = {
-        "twitter": "Best times: Tuesday 10 AM, Thursday 2 PM, Saturday 11 AM",
-        "instagram": "Best times: Monday 12 PM, Wednesday 6 PM, Friday 9 AM",
-        "linkedin": "Best times: Tuesday 8 AM, Thursday 10 AM",
-    }
-    return recommendations.get(
-        platform.lower(),
-        "Best times: Tuesday 10 AM, Thursday 2 PM (general recommendation)"
-    )
+    try:
+        predictor = _get_predictor()
+        result = predictor.recommend_optimal_time(hours_ahead=48)
+
+        if isinstance(result, str):
+            return result  # Error message
+
+        return (
+            f"📊 Engagement Analysis for {platform}:\n"
+            f"Based on ML analysis of historical engagement patterns:\n"
+            f"• Best time to post: {result['recommended_time']}\n"
+            f"• Predicted engagement score: {result['predicted_score']}/100"
+        )
+    except Exception as e:
+        return f"Error analyzing engagement data: {str(e)}"
 
 
 @tool
@@ -88,7 +188,10 @@ def queue_social_media_posts(posts: str) -> str:
     """
     Queues the finalized, user-approved posts into the social media scheduler.
     ONLY call this AFTER the user has approved the taglines.
+    posts must be a single string containing all the taglines.
     """
+    if isinstance(posts, list):
+        posts = "\n".join(str(p) for p in posts)
     return f"SUCCESS: The following posts have been queued for publishing:\n{posts}"
 
 
@@ -99,8 +202,8 @@ def queue_social_media_posts(posts: str) -> str:
 @tool
 def read_schedule_csv(file_path: str) -> str:
     """
-    Reads an event schedule from a CSV file and returns structured data.
-    The CSV can have columns like: time, event/session name, speaker, room, etc.
+    Reads an event schedule from a CSV file, detects conflicts,
+    and returns a human-readable formatted schedule.
     """
     try:
         df = pd.read_csv(file_path, header=None)
@@ -113,7 +216,20 @@ def read_schedule_csv(file_path: str) -> str:
                 f"col_{i}" for i in range(5, len(df.columns))
             ]
         records = df.to_dict("records")
-        return f"Successfully read {len(records)} schedule entries:\n{json.dumps(records, indent=2)}"
+
+        # Format as readable text
+        formatted = _format_schedule(records)
+
+        # Detect conflicts
+        conflicts = _detect_conflicts(records)
+
+        result = f"Schedule ({len(records)} sessions):\n{formatted}"
+        if conflicts:
+            result += "\n\n" + "\n".join(conflicts)
+            result += "\n\nPlease resolve these conflicts before finalizing."
+        else:
+            result += "\n\n✅ No scheduling conflicts detected."
+        return result
     except Exception as e:
         return f"Error reading schedule CSV '{file_path}': {str(e)}"
 
@@ -124,21 +240,47 @@ def build_schedule(schedule_text: str) -> str:
     Finalizes the master timeline. Pass the schedule as plain text.
     ONLY call this AFTER the user has approved the schedule.
     """
+    if isinstance(schedule_text, list):
+        schedule_text = "\n".join(str(s) for s in schedule_text)
     return f"SUCCESS: Schedule has been finalized:\n{schedule_text}"
 
 
 @tool
-def recalculate_schedule(change_request: str) -> str:
+def recalculate_schedule(change_request: str, current_schedule: str = "") -> str:
     """
     Recalculates the schedule based on the user's change request.
-    Just pass the change the user wants.
+    Pass the change the user wants and the current schedule text.
+    Automatically checks for new conflicts after applying changes.
     """
-    return (
+    if isinstance(change_request, list):
+        change_request = " ".join(str(c) for c in change_request)
+
+    # Parse schedule lines to detect conflicts in modified schedule
+    lines = current_schedule.strip().split("\n") if current_schedule else []
+    records = []
+    for line in lines:
+        # Try to parse "1. 10:00-11:00 — Session Name"
+        m = re.match(r'\d+\.\s*(\d+:\d+)\s*-\s*(\d+:\d+)\s*[—-]\s*(.*)', line)
+        if m:
+            records.append({
+                "start_time": m.group(1),
+                "end_time": m.group(2),
+                "session": m.group(3).strip()
+            })
+
+    conflicts = _detect_conflicts(records) if records else []
+
+    result = (
         f"Schedule recalculated.\n"
         f"Change applied: {change_request}\n"
-        f"All conflicts have been checked and resolved. "
-        f"The communications agent should now notify all participants of the updated schedule."
     )
+    if conflicts:
+        result += "\n" + "\n".join(conflicts)
+        result += "\nPlease resolve these conflicts."
+    else:
+        result += "✅ No scheduling conflicts detected.\n"
+    result += "The communications agent should now notify all participants of the updated schedule."
+    return result
 
 
 # ─────────────────────────────────────────────
@@ -150,7 +292,7 @@ def read_participant_csv(file_path: str) -> str:
     """
     Reads participant data from a CSV file (registration sheet).
     Expected columns: email, name, and optionally notes/interests.
-    Returns extracted and validated records.
+    Returns extracted and validated participant count and names.
     """
     try:
         df = pd.read_csv(file_path, header=None)
@@ -171,10 +313,17 @@ def read_participant_csv(file_path: str) -> str:
             else:
                 invalid_emails.append(email)
 
-        result = f"Extracted {len(valid_records)} valid participants."
+        # Return human-readable summary instead of raw JSON
+        result = f"Extracted {len(valid_records)} valid participants:"
+        for r in valid_records:
+            name = str(r.get("name", "")).strip()
+            notes = str(r.get("notes", "")).strip() if "notes" in r else ""
+            result += f"\n• {name} ({r['email']})"
+            if notes and notes != "nan":
+                result += f" — interested in {notes}"
+
         if invalid_emails:
             result += f"\nSkipped {len(invalid_emails)} invalid emails: {invalid_emails}"
-        result += f"\nData:\n{json.dumps(valid_records, indent=2)}"
         return result
     except Exception as e:
         return f"Error reading participant CSV '{file_path}': {str(e)}"
@@ -184,12 +333,16 @@ def read_participant_csv(file_path: str) -> str:
 def send_personalized_emails(subject: str, body_template: str, participant_csv_path: str) -> str:
     """
     Sends personalized emails to all participants in the CSV file via Gmail API.
-    The body_template should contain {name} which gets replaced per recipient.
+    The body_template should contain {name} and {notes} which get replaced per recipient.
     participant_csv_path is the file path to the participant CSV.
     ONLY call this AFTER the user has approved the email draft.
     """
+    if isinstance(subject, list):
+        subject = " ".join(str(s) for s in subject)
+    if isinstance(body_template, list):
+        body_template = "\n".join(str(b) for b in body_template)
+
     try:
-        # Read participants from CSV
         df = pd.read_csv(participant_csv_path, header=None)
         if len(df.columns) == 2:
             df.columns = ["email", "name"]
@@ -200,7 +353,6 @@ def send_personalized_emails(subject: str, body_template: str, participant_csv_p
                 f"col_{i}" for i in range(3, len(df.columns))
             ]
 
-        # Build Gmail service
         service = _get_gmail_service()
         sent_count = 0
         errors = []

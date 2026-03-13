@@ -1,5 +1,6 @@
 import re
-from langchain_core.messages import SystemMessage, ToolMessage
+import json
+from langchain_core.messages import SystemMessage, ToolMessage, AIMessage
 from agents.state import AgentState
 from agents.tools import tools_by_name
 from langgraph.graph import END
@@ -15,6 +16,48 @@ PHASE_TRANSITIONS = {
     "email_draft": "done",
     "reschedule": "email_draft",
 }
+
+
+# ─────────────────────────────────────────────
+# JSON Sanitizer
+# ─────────────────────────────────────────────
+
+_JSON_TOOL_CALL_RE = re.compile(
+    r'\{\s*"name"\s*:\s*"[^"]+"\s*,\s*"parameters"\s*:', re.DOTALL
+)
+
+
+def _sanitize_response(content: str) -> str:
+    """
+    Local LLMs sometimes output raw JSON tool calls as text instead of using
+    the proper tool-calling mechanism. This strips those JSON blocks so the
+    frontend never sees raw JSON.
+    """
+    if not content:
+        return content
+
+    # Check if the entire content is a raw JSON tool call
+    stripped = content.strip()
+    if stripped.startswith("{") and _JSON_TOOL_CALL_RE.search(stripped):
+        # Entire message is a stray tool call — replace with fallback
+        return "Processing your request..."
+
+    # Check if JSON is embedded within text — strip just the JSON part
+    if _JSON_TOOL_CALL_RE.search(content):
+        # Remove the JSON block but keep surrounding text
+        cleaned = _JSON_TOOL_CALL_RE.sub("", content)
+        # Also remove any trailing } that was part of the JSON
+        # Find and remove complete JSON objects that look like tool calls
+        cleaned = re.sub(
+            r'\{[^{}]*"name"\s*:\s*"[^"]*"[^{}]*"parameters"\s*:\s*\{[^{}]*\}[^{}]*\}',
+            '', content
+        )
+        cleaned = cleaned.strip()
+        if cleaned:
+            return cleaned
+        return "Processing your request..."
+
+    return content
 
 
 # ─────────────────────────────────────────────
@@ -61,7 +104,7 @@ def create_agent(llm, agent_tools, system_prompt, agent_name):
 
         schedule = state.get("approved_schedule")
         if schedule:
-            ctx += f"\n[APPROVED SCHEDULE: {schedule}]"
+            ctx += f"\n[APPROVED SCHEDULE:\n{schedule}\n]"
 
         participants = state.get("participant_data")
         if participants:
@@ -72,6 +115,13 @@ def create_agent(llm, agent_tools, system_prompt, agent_name):
         response = bound_llm.invoke(
             [SystemMessage(content=full_prompt)] + state["messages"]
         )
+
+        # Sanitize: strip raw JSON tool calls from text output
+        if hasattr(response, "content") and response.content:
+            if not (hasattr(response, "tool_calls") and response.tool_calls):
+                sanitized = _sanitize_response(str(response.content))
+                if sanitized != str(response.content):
+                    response = AIMessage(content=sanitized)
 
         updates = {"messages": [response], "sender": agent_name}
 
@@ -102,7 +152,7 @@ def tool_executor(state: AgentState):
     for tc in tool_calls:
         tool_fn = tools_by_name.get(tc["name"])
         if tool_fn is None:
-            obs = f"Error: Unknown tool '{tc['name']}'"
+            obs = f"Error: Unknown tool '{tc['name']}'. Available tools: {list(tools_by_name.keys())}"
         else:
             try:
                 obs = tool_fn.invoke(tc["args"])
