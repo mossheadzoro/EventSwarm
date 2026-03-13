@@ -162,17 +162,29 @@ def tool_executor(state: AgentState):
 
     updates = {"messages": results}
 
-    # Persist results to state based on which tool was called
+    # Persist CLEAN results to state (strip "SUCCESS:" prefixes so they
+    # don't leak into email drafts or other agent contexts)
     for tc, result in zip(tool_calls, results):
         name = tc["name"]
+        clean = result.content
+
+        # Strip "SUCCESS: ..." prefix lines from stored data
+        if clean.startswith("SUCCESS:"):
+            # Remove first line ("SUCCESS: ...") and keep the rest
+            lines = clean.split("\n", 1)
+            clean = lines[1].strip() if len(lines) > 1 else clean
+
         if name == "queue_social_media_posts":
-            updates["approved_taglines"] = result.content
+            updates["approved_taglines"] = clean
         elif name == "build_schedule":
-            updates["approved_schedule"] = result.content
+            updates["approved_schedule"] = clean
         elif name == "read_schedule_csv":
-            updates["approved_schedule"] = result.content
+            updates["approved_schedule"] = clean
+        elif name == "recalculate_schedule":
+            # Also update approved_schedule on recalculate
+            updates["approved_schedule"] = clean
         elif name == "read_participant_csv":
-            updates["participant_data"] = result.content
+            updates["participant_data"] = clean
         elif name == "send_personalized_emails":
             updates["emails_sent"] = True
 

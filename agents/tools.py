@@ -192,7 +192,23 @@ def queue_social_media_posts(posts: str) -> str:
     """
     if isinstance(posts, list):
         posts = "\n".join(str(p) for p in posts)
-    return f"SUCCESS: The following posts have been queued for publishing:\n{posts}"
+        
+    result = f"SUCCESS: The following posts have been queued for publishing:\n{posts}"
+    
+    # Auto-run engagement analysis so the user always sees it
+    try:
+        predictor = _get_predictor()
+        eng_data = predictor.recommend_optimal_time(hours_ahead=48)
+        if not isinstance(eng_data, str):
+            result += (
+                f"\n\n📊 Engagement Analysis:\n"
+                f"• Best time to post: {eng_data['recommended_time']}\n"
+                f"• Predicted engagement score: {eng_data['predicted_score']}/100"
+            )
+    except Exception:
+        pass # Silently fail engagement if something breaks, queue still succeeds
+        
+    return result
 
 
 # ─────────────────────────────────────────────
@@ -246,21 +262,21 @@ def build_schedule(schedule_text: str) -> str:
 
 
 @tool
-def recalculate_schedule(change_request: str, current_schedule: str = "") -> str:
+def recalculate_schedule(modified_schedule: str) -> str:
     """
-    Recalculates the schedule based on the user's change request.
-    Pass the change the user wants and the current schedule text.
-    Automatically checks for new conflicts after applying changes.
+    Validates a modified schedule for conflicts.
+    Pass the COMPLETE modified schedule as a formatted list
+    (e.g. '1. 10:00-11:00 — Session Name').
+    You must apply the user's changes yourself before calling this.
     """
-    if isinstance(change_request, list):
-        change_request = " ".join(str(c) for c in change_request)
+    if isinstance(modified_schedule, list):
+        modified_schedule = "\n".join(str(s) for s in modified_schedule)
 
-    # Parse schedule lines to detect conflicts in modified schedule
-    lines = current_schedule.strip().split("\n") if current_schedule else []
+    # Parse schedule lines to detect conflicts
+    lines = modified_schedule.strip().split("\n") if modified_schedule else []
     records = []
     for line in lines:
-        # Try to parse "1. 10:00-11:00 — Session Name"
-        m = re.match(r'\d+\.\s*(\d+:\d+)\s*-\s*(\d+:\d+)\s*[—-]\s*(.*)', line)
+        m = re.match(r'\d+\.\s*(\d+:\d+)\s*-\s*(\d+:\d+)\s*[—\-]\s*(.*)', line)
         if m:
             records.append({
                 "start_time": m.group(1),
@@ -268,18 +284,18 @@ def recalculate_schedule(change_request: str, current_schedule: str = "") -> str
                 "session": m.group(3).strip()
             })
 
-    conflicts = _detect_conflicts(records) if records else []
+    if not records:
+        return f"Could not parse schedule. Please provide it as a numbered list like:\n1. 10:00-11:00 — Session Name"
 
-    result = (
-        f"Schedule recalculated.\n"
-        f"Change applied: {change_request}\n"
-    )
+    conflicts = _detect_conflicts(records)
+    formatted = _format_schedule(records)
+
+    result = f"Updated schedule ({len(records)} sessions):\n{formatted}"
     if conflicts:
-        result += "\n" + "\n".join(conflicts)
-        result += "\nPlease resolve these conflicts."
+        result += "\n\n" + "\n".join(conflicts)
+        result += "\n\nPlease resolve these conflicts before finalizing."
     else:
-        result += "✅ No scheduling conflicts detected.\n"
-    result += "The communications agent should now notify all participants of the updated schedule."
+        result += "\n\n✅ No scheduling conflicts detected."
     return result
 
 
