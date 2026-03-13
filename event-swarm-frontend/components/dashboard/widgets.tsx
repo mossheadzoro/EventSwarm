@@ -5,7 +5,9 @@ import { Clock, CheckCircle, Share2, Mail, TrendingUp } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 
 
-export const ScheduleWidget = ({activeJob}:{activeJob:any[]}) => (
+
+
+export function ScheduleWidget() {
   <div className="bg-[#0f171e] border border-[#1e293b] rounded-2xl p-6 flex flex-col h-full">
     <div className="flex justify-between items-center mb-6">
       <div className="flex items-center text-white font-semibold">
@@ -32,7 +34,7 @@ export const ScheduleWidget = ({activeJob}:{activeJob:any[]}) => (
       </div>
     </div>
   </div>
-);
+}
 
 export const ApprovalWidget = () => (
   <div className="bg-[#0f171e] border border-[#1e293b] rounded-2xl p-6 mt-6">

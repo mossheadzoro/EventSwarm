@@ -6,8 +6,10 @@ import { Button } from "@/components/ui/button";
 import { VoiceCommand } from "@/components/voice/voice-command";
 import { FeatureCard } from "@/components/cards/feature-card";
 import { useEffect, useState } from "react";
-
+import ManualPrompt from "@/components/home/manual-prompt";
+import EventForm from "@/components/home/event-form";
 export default function HomePage() {
+  const [mode, setMode] = useState<"voice" | "prompt" | "form">("voice");
   const [user, setUser] = useState<any>(null);
   const [loading, setLoading] = useState(true);
 
@@ -98,7 +100,9 @@ export default function HomePage() {
               )}
 
               <Link href="/dashboard">
-                <Button variant="default" className="bg-[#00e5ff] p-4">Launch Dashboard</Button>
+                <Button variant="default" className="bg-[#00e5ff] p-4">
+                  Launch Dashboard
+                </Button>
               </Link>
             </div>
           </nav>
@@ -122,12 +126,38 @@ export default function HomePage() {
             speakers, and outreach with a single voice command.
           </p>
 
+          <div className="flex bg-[#0f171e] border border-[#1e293b] rounded-xl p-1 mb-6">
+            {[
+              { id: "voice", label: "Voice Command" },
+              { id: "prompt", label: "Prompt" },
+              { id: "form", label: "Event Form" },
+            ].map((item) => (
+              <button
+                key={item.id}
+                onClick={() => setMode(item.id as any)}
+                className={`px-5 py-2 rounded-lg text-sm transition-all ${
+                  mode === item.id
+                    ? "bg-[#00e5ff] text-black shadow-[0_0_20px_rgba(0,229,255,0.6)]"
+                    : "text-gray-400 hover:text-white"
+                }`}
+              >
+                {item.label}
+              </button>
+            ))}
+          </div>
           {/* Core Interactive Visual */}
-          <VoiceCommand />
+          {mode === "voice" && <VoiceCommand />}
+
+{mode === "prompt" && <ManualPrompt />}
+
+{mode === "form" && <EventForm />}
 
           {/* Action Row */}
           <div className="flex flex-col sm:flex-row space-y-4 sm:space-y-0 sm:space-x-4 mt-8 mb-32">
-            <Button variant="outline" className="px-8 py-4 bg-blue-400 flex items-center">
+            <Button
+              variant="outline"
+              className="px-8 py-4 bg-blue-400 flex items-center"
+            >
               <Play className="text-white w-4 h-4 mr-2" fill="currentColor" />
               Watch Demo
             </Button>
