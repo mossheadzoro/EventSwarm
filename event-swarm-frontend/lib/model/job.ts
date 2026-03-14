@@ -14,6 +14,10 @@ status: {
  type: String,
  default: "pending"
 },
+thread_id: {
+    type: String,
+    required: false, // Optional until they click Execute
+  },
  created_at: {
   type: Date,
   default: Date.now
