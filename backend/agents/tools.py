@@ -22,6 +22,7 @@ from google import genai
 import cloudinary
 import cloudinary.uploader
 import tempfile
+from calendar_google import get_calendar_service, is_day_free, add_event
 
 
 # ─────────────────────────────────────────────
@@ -565,15 +566,46 @@ def generate_poster(prompt: str) -> str:
     except Exception as e:
         return f"Error generating poster: {str(e)}"
 
+@tool
+def check_calendar_free(date_str: str) -> str:
+    """
+    Checks if a specific date (YYYY-MM-DD) is free on the user's Google Calendar.
+    It checks both the primary calendar and the Indian Holidays calendar.
+    """
+    try:
+        service = get_calendar_service()
+        free = is_day_free(service, date_str)
+        if free:
+            return f"SUCCESS: {date_str} is completely free on the calendar!"
+        else:
+            return f"NOTICE: {date_str} is NOT free. There are existing events or holidays on this day."
+    except Exception as e:
+        return f"Error checking calendar: {str(e)}"
+
+@tool
+def add_calendar_event(summary: str, start_time: str, end_time: str) -> str:
+    """
+    Adds a finalized event to the user's primary Google Calendar.
+    start_time and end_time must be in 'YYYY-MM-DDTHH:MM:SS' format.
+    Example: 2026-03-30T10:00:00
+    ONLY call this AFTER the user has explicitly approved the final schedule.
+    """
+    try:
+        service = get_calendar_service()
+        event = add_event(service, summary, start_time, end_time)
+        return f"SUCCESS: Event '{summary}' added to Google Calendar! Link: {event.get('htmlLink')}"
+    except Exception as e:
+        return f"Error adding to calendar: {str(e)}"
+
 # ─────────────────────────────────────────────
 # Tool Registry
 # ─────────────────────────────────────────────
 
 content_strategist_tools = [generate_taglines, analyze_engagement_data, queue_social_media_posts]
-scheduler_tools = [read_schedule_csv, build_schedule, recalculate_schedule, save_dynamic_schedule, estimate_budget]
+scheduler_tools = [read_schedule_csv, build_schedule, recalculate_schedule, save_dynamic_schedule, estimate_budget, check_calendar_free, add_calendar_event]
 communications_tools = [read_participant_csv, send_personalized_emails]
 art_director_tools = [generate_poster]
-supervisor_tools = [update_event_details]
+supervisor_tools = [update_event_details, check_calendar_free]
 
 all_tools = content_strategist_tools + scheduler_tools + communications_tools + art_director_tools + supervisor_tools
 tools_by_name = {t.name: t for t in all_tools}
