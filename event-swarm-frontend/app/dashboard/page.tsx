@@ -7,12 +7,8 @@ import { SwarmEngine } from "@/components/swarm/swarm-engine";
 
 import SocialWidget from "@/components/dashboard/social-media-widget";
 import EmailWidget from "@/components/dashboard/email-widget";
-import {
-  AnalyticsWidget,
-  ScheduleWidget,
-} from "@/components/dashboard/widgets";
+import SchedulingWidget from "../../components/dashboard/schedule-widget"; // <-- Import the new widget here
 
-import { FloatingVoice } from "@/components/dashboard/voice-orb";
 import { socket } from "@/lib/socket";
 
 import StarfieldBackground from "@/components/dashboard/swarm-background";
@@ -33,110 +29,51 @@ export default function DashboardPage() {
   const lenisRef = useRef<any>(null);
 
   // Fetch jobs
-  // useEffect(() => {
-  //   const loadJobs = async () => {
-  //     try {
-  //       // Explicitly set GET and accept JSON headers to match Postman's behavior
-  //       const res = await fetch("/api/voice/job-list", {
-  //         method: "GET",
-  //         headers: {
-  //           "Accept": "application/json",
-  //         },
-  //       });
+  useEffect(() => {
+    let isMounted = true; 
 
-  //       if (!res.ok) {
-  //         // If it fails, we need to know what the server actually returned
-  //         const errorText = await res.text();
-  //         throw new Error(`Status ${res.status}: ${errorText}`);
-  //       }
+    const loadJobs = async () => {
+      try {
+        const res = await fetch("/api/voice/job-list", {
+          headers: { Accept: "application/json" },
+        });
 
-  //       const data: Job[] = await res.json();
+        if (!res.ok) throw new Error(`Failed to fetch: ${res.status}`);
 
-  //       if (!Array.isArray(data)) {
-  //         console.error("Expected an array but got:", data);
-  //         return;
-  //       }
+        const data: Job[] = await res.json();
+        if (!isMounted || !Array.isArray(data)) return;
 
-  //       setJobs((prev) => {
-  //         if (JSON.stringify(prev) === JSON.stringify(data)) return prev;
-  //         return data;
-  //       });
+        setJobs((prev) => {
+          if (JSON.stringify(prev) === JSON.stringify(data)) return prev;
+          return data;
+        });
 
-  //       setActiveJob((prev) => {
-  //         if (!prev && data.length > 0) return data[0];
-  //         const updated = data.find((j) => j._id === prev?._id);
-  //         return updated || data[0] || null;
-  //       });
-  //     } catch (err) {
-  //       console.error("Job fetch error:", err);
-  //     } finally {
-  //       setLoading(false);
-  //     }
-  //   };
-
-  //   loadJobs();
-  //   const interval = setInterval(loadJobs, 5000);
-  //   return () => clearInterval(interval);
-  // }, []);
-
-  // Fetch jobs
-useEffect(() => {
-  let isMounted = true; // Prevents memory leaks if component unmounts
-
-  const loadJobs = async () => {
-    try {
-      const res = await fetch("/api/voice/job-list", {
-        headers: {
-          Accept: "application/json",
-        },
-      });
-
-      if (!res.ok) {
-        throw new Error(`Failed to fetch: ${res.status}`);
-      }
-
-      const data: Job[] = await res.json();
-      if (!isMounted || !Array.isArray(data)) return;
-
-      // 1. Only update jobs array if the data string actually changed
-      setJobs((prev) => {
-        if (JSON.stringify(prev) === JSON.stringify(data)) return prev;
-        return data;
-      });
-
-      // 2. Safely update activeJob without breaking references
-      setActiveJob((prev) => {
-        if (!prev && data.length > 0) return data[0]; // Initial load
-        
-        const updated = data.find((j) => j._id === prev?._id);
-        
-        if (updated) {
-          // Keep the EXACT same object reference if the contents haven't changed
-          if (JSON.stringify(prev) === JSON.stringify(updated)) {
-            return prev; 
+        setActiveJob((prev) => {
+          if (!prev && data.length > 0) return data[0]; 
+          const updated = data.find((j) => j._id === prev?._id);
+          
+          if (updated) {
+            if (JSON.stringify(prev) === JSON.stringify(updated)) return prev; 
+            return updated; 
           }
-          return updated; // Update if status or something else changed
-        }
-        
-        // Fallback if the active job was deleted from the DB
-        return data.length > 0 ? data[0] : null; 
-      });
+          return data.length > 0 ? data[0] : null; 
+        });
 
-    } catch (err) {
-      console.error("Job fetch error:", err);
-    } finally {
-      if (isMounted) setLoading(false);
-    }
-  };
+      } catch (err) {
+        console.error("Job fetch error:", err);
+      } finally {
+        if (isMounted) setLoading(false);
+      }
+    };
 
-  loadJobs();
-  const interval = setInterval(loadJobs, 1000000); // Poll every 5s
+    loadJobs();
+    const interval = setInterval(loadJobs, 100000); 
 
-  return () => {
-    isMounted = false;
-    clearInterval(interval);
-  };
-}, []);
+    return () => {
+      isMounted = false;
+      clearInterval(interval);
+    };
+  }, []);
 
   // LENIS Smooth Scroll & Curved Animation...
   useEffect(() => {
@@ -202,7 +139,8 @@ useEffect(() => {
     lenisRef.current.scrollTo(ref.current, { offset: -80, duration: 1.2 });
   };
 
-  useEffect(() => {
+ useEffect(() => {
+    // Existing approval listener
     const handleApprovalNeeded = (data: any) => {
       if (data.widget === "email") scrollToWidget(emailRef);
       if (data.widget === "social") scrollToWidget(socialRef);
@@ -210,7 +148,27 @@ useEffect(() => {
       if (data.widget === "analytics") scrollToWidget(analyticsRef);
     };
 
+    // NEW: Phase change listener to auto-scroll when an agent starts working
+    const handlePhaseChange = (data: { phase: string }) => {
+      switch (data.phase) {
+        case "content_strategist":
+          scrollToWidget(socialRef);
+          break;
+        case "communications":
+          scrollToWidget(emailRef);
+          break;
+        case "scheduler":
+          scrollToWidget(scheduleRef);
+          break;
+        // Optionally handle "art_director" or "supervisor" if you have widgets for them later
+      }
+    };
+
+    // Register socket listeners
     socket.on("approval_needed", handleApprovalNeeded);
+    socket.on("agent_phase", handlePhaseChange); // Listen for phase updates
+    
+    // Existing job update listener
     socket.on("job_update", (updatedJob) => {
       setJobs((prev) => {
         const exists = prev.find((j) => j._id === updatedJob._id);
@@ -224,8 +182,10 @@ useEffect(() => {
       });
     });
 
+    // Cleanup
     return () => {
       socket.off("approval_needed", handleApprovalNeeded);
+      socket.off("agent_phase", handlePhaseChange);
       socket.off("job_update");
     };
   }, []);
@@ -235,11 +195,11 @@ useEffect(() => {
       <StarfieldBackground />
 
       <div className="relative z-20">
-        {/* FIX: Passing the event_name to the Header component */}
-        <DashboardHeader  />
+        <DashboardHeader />
       </div>
 
       <div className="flex flex-1 overflow-hidden relative z-10">
+        {/* Left Side: Swarm Engine */}
         <div className="w-[50%] p-8 overflow-hidden relative">
           <div className="relative z-10">
             {loading ? (
@@ -248,6 +208,7 @@ useEffect(() => {
               activeJob && (
                 <SwarmEngine
                   jobs={jobs}
+                  setJobs={setJobs}
                   activeJob={activeJob}
                   setActiveJob={setActiveJob}
                 />
@@ -256,28 +217,31 @@ useEffect(() => {
           </div>
         </div>
 
+        {/* Right Side: Scrollable Widgets */}
         <div
           ref={widgetContainerRef}
-          className="relative flex-1 overflow-y-scroll overflow-x-hidden px-16 py-16 space-y-24 border-none"
+          className="relative flex-1 overflow-y-scroll overflow-x-hidden px-16 py-16 space-y-24 border-none custom-scrollbar"
         >
+          {/* WIDGET 1: SOCIAL */}
           <div ref={(el: any) => { socialRef.current = el; widgetRefs.current[0] = el; }} className="max-w-lg mx-auto transition-transform duration-300 origin-center">
-            <SocialWidget />
+            <SocialWidget activeJob={activeJob} />
           </div>
 
+          {/* WIDGET 2: EMAIL */}
           <div ref={(el: any) => { emailRef.current = el; widgetRefs.current[1] = el; }} className="max-w-lg mx-auto transition-transform duration-300 origin-center">
-            <EmailWidget />
+            <EmailWidget  />
           </div>
 
+          {/* WIDGET 3: SCHEDULE */}
           <div ref={(el: any) => { scheduleRef.current = el; widgetRefs.current[2] = el; }} className="max-w-lg mx-auto transition-transform duration-300 origin-center">
-            
+            <SchedulingWidget activeJob={activeJob} />
           </div>
 
-          <div ref={(el: any) => { analyticsRef.current = el; widgetRefs.current[3] = el; }} className="max-w-lg mx-auto transition-transform duration-300 origin-center">
-            <AnalyticsWidget />
-          </div>
+          
         </div>
       </div>
-      <FloatingVoice />
+      
+      
     </div>
   );
 }

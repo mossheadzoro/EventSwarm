@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server"
 import { connectDB } from "@/lib/mongodb"
 import Job from "../../../../lib/model/job"
-
+import User from "../../../../lib/model/User";
 export async function GET() {
 
  await connectDB()
