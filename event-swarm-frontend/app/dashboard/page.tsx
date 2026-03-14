@@ -38,7 +38,7 @@ export default function DashboardPage() {
 
   // Fetch jobs
   useEffect(() => {
-    let isMounted = true; 
+    let isMounted = true;
 
     const loadJobs = async () => {
       try {
@@ -57,14 +57,14 @@ export default function DashboardPage() {
         });
 
         setActiveJob((prev) => {
-          if (!prev && data.length > 0) return data[0]; 
+          if (!prev && data.length > 0) return data[0];
           const updated = data.find((j) => j._id === prev?._id);
-          
+
           if (updated) {
-            if (JSON.stringify(prev) === JSON.stringify(updated)) return prev; 
-            return updated; 
+            if (JSON.stringify(prev) === JSON.stringify(updated)) return prev;
+            return updated;
           }
-          return data.length > 0 ? data[0] : null; 
+          return data.length > 0 ? data[0] : null;
         });
 
       } catch (err) {
@@ -75,7 +75,7 @@ export default function DashboardPage() {
     };
 
     loadJobs();
-    const interval = setInterval(loadJobs, 100000); 
+    const interval = setInterval(loadJobs, 100000);
 
     return () => {
       isMounted = false;
@@ -127,7 +127,7 @@ export default function DashboardPage() {
       };
 
       lenis.on("scroll", updatePositions);
-      updatePositions(); 
+      updatePositions();
 
       function raf(time: number) {
         lenis.raf(time);
@@ -182,9 +182,9 @@ export default function DashboardPage() {
       const textLower = data.text.toLowerCase();
       if (textLower.includes("draft taglines") || textLower.includes("taglines:")) {
         const lines = data.text.split("\n").map(l => l.trim()).filter(l => l.length > 5);
-        const tags = lines.filter(l => 
-          !l.toLowerCase().includes("here are") && 
-          !l.toLowerCase().includes("please let me know") && 
+        const tags = lines.filter(l =>
+          !l.toLowerCase().includes("here are") &&
+          !l.toLowerCase().includes("please let me know") &&
           !l.toLowerCase().includes("approve") &&
           !l.toLowerCase().includes("draft taglines")
         );
@@ -197,7 +197,7 @@ export default function DashboardPage() {
     socket.on("approval_needed", handleApprovalNeeded);
     socket.on("agent_phase", handlePhaseChange);
     socket.on("supervisor_reply", handleSupervisorReply); // <-- Attach new listener
-    
+
     socket.on("job_update", (updatedJob) => {
       setJobs((prev) => {
         const exists = prev.find((j) => j._id === updatedJob._id);
@@ -284,8 +284,9 @@ export default function DashboardPage() {
           </div>
 
           {/* WIDGET 2: EMAIL */}
+          {/* WIDGET 2: EMAIL */}
           <div ref={(el: any) => { emailRef.current = el; widgetRefs.current[2] = el; }} className="max-w-lg mx-auto transition-transform duration-300 origin-center">
-            <EmailWidget  />
+            <EmailWidget activeJob={activeJob} activeThreadId={activeThreadId} />
           </div>
 
           {/* WIDGET 3: SCHEDULE */}
