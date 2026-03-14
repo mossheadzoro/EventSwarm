@@ -2,7 +2,7 @@
 "use client";
 
 import React, { useEffect, useRef, useState } from "react";
-import { Mic, Mail, Calendar, PenTool, Brain, Play, Palette } from "lucide-react";
+import { User, Mail, Calendar, PenTool, Brain, Play, Palette } from "lucide-react";
 import { socket } from "@/lib/socket";
 import { FlowLayer } from "./flow-animation";
 import { AgentNode } from "./agent-node";
@@ -102,10 +102,14 @@ export function SwarmEngine({ jobs, setJobs, activeJob, setActiveJob, onThreadCr
   
   useEffect(() => {
     let flowInterval: NodeJS.Timeout;
+    let sourceNode: string = "supervisor";
     let targetNode: string | null = null;
 
     // Determine which node should receive the packets based on the new phase
-    if (currentPhase === "content_strategist" || currentPhase === "content") {
+    if (currentPhase === "supervisor") {
+      sourceNode = "voice";
+      targetNode = "supervisor";
+    } else if (currentPhase === "content_strategist" || currentPhase === "content") {
       targetNode = "content";
     } else if (currentPhase === "art_director" || currentPhase === "art") {
       targetNode = "art";
@@ -119,7 +123,7 @@ export function SwarmEngine({ jobs, setJobs, activeJob, setActiveJob, onThreadCr
       // Fire instantly
       const sendPacket = () => {
         const id = `flow-${Date.now()}-${Math.random()}`; 
-        setPackets((p) => [...p, { id, from: "supervisor", to: targetNode as string }]);
+        setPackets((p) => [...p, { id, from: sourceNode, to: targetNode as string }]);
         
         setTimeout(() => {
           setPackets((p) => p.filter((x) => x.id !== id));
@@ -192,7 +196,7 @@ export function SwarmEngine({ jobs, setJobs, activeJob, setActiveJob, onThreadCr
   };
 
   return (
-    <div className="mb-6 w-5xl -mt-5 mx-auto px-4 flex flex-col relative">
+    <div className="mb-4 w-full max-w-4xl mx-auto px-2 flex flex-col relative scale-[0.90] xl:scale-100 origin-top">
       <JobSelector jobs={jobs} activeJob={activeJob} setActiveJob={setActiveJob} />
 
       <div className="flex flex-row gap-12">
@@ -207,7 +211,7 @@ export function SwarmEngine({ jobs, setJobs, activeJob, setActiveJob, onThreadCr
 
       <div
         ref={containerRef}
-        className="relative bg-[#0a1017] mt-6 rounded-2xl pt-16 pb-32 px-10 min-h-150 overflow-hidden border border-[#1e293b]"
+        className="relative bg-[#0a1017] mt-4 rounded-2xl pt-10 pb-20 px-6 min-h-[450px] overflow-hidden border border-[#1e293b]"
       >
         <FlowLayer packets={packets} nodeRefs={nodeRefs} containerRef={containerRef} />
 
@@ -217,8 +221,9 @@ export function SwarmEngine({ jobs, setJobs, activeJob, setActiveJob, onThreadCr
           threadId={activeThreadId}
         />
 
-        <div className="relative z-10 px-24 flex flex-col items-center space-y-12">
+        <div className="relative z-10 px-12 flex flex-col items-center space-y-8">
           <Button
+            id="step-execute-btn"
             onClick={handleOpenModal}
             disabled={!activeJob || currentPhase !== null}
             className="w-60 h-12 bg-green-500 hover:bg-green-400 text-[#0a1017] font-bold"
@@ -228,28 +233,28 @@ export function SwarmEngine({ jobs, setJobs, activeJob, setActiveJob, onThreadCr
           </Button>
 
           <div ref={nodeRefs.voice}>
-            <AgentNode icon={Mic} title="Voice Parser" data={agents.voice} glow={receiverGlow === "voice"} />
+            <AgentNode icon={User} title="User" data={agents.voice} glow={receiverGlow === "voice"} phaseKey="voice" currentPhase={currentPhase} />
           </div>
 
           <div ref={nodeRefs.supervisor}>
-            <AgentNode icon={Brain} title="Supervisor" data={agents.supervisor} glow={receiverGlow === "supervisor"} />
+            <AgentNode icon={Brain} title="Supervisor" data={agents.supervisor} glow={receiverGlow === "supervisor"} phaseKey="supervisor" currentPhase={currentPhase} />
           </div>
 
-          <div className="flex justify-between w-full max-w-5xl mx-auto pt-8">
+          <div className="flex justify-between w-full max-w-4xl mx-auto pt-4">
             <div ref={nodeRefs.content}>
-              <AgentNode icon={PenTool} title="Content Strategist" data={agents.content} glow={receiverGlow === "content"} />
+              <AgentNode icon={PenTool} title="Content Strategist" data={agents.content} glow={receiverGlow === "content"} phaseKey="content" currentPhase={currentPhase} />
             </div>
 
             <div ref={nodeRefs.art}>
-              <AgentNode icon={Palette} title="Art Director" data={agents.art} glow={receiverGlow === "art"} />
+              <AgentNode icon={Palette} title="Art Director" data={agents.art} glow={receiverGlow === "art"} phaseKey="art" currentPhase={currentPhase} />
             </div>
 
             <div ref={nodeRefs.scheduler}>
-              <AgentNode icon={Calendar} title="Scheduler" data={agents.scheduler} glow={receiverGlow === "scheduler"} />
+              <AgentNode icon={Calendar} title="Scheduler" data={agents.scheduler} glow={receiverGlow === "scheduler"} phaseKey="scheduler" currentPhase={currentPhase} />
             </div>
 
             <div ref={nodeRefs.comms}>
-              <AgentNode icon={Mail} title="Email Agent" data={agents.comms} glow={receiverGlow === "comms"} />
+              <AgentNode icon={Mail} title="Email Agent" data={agents.comms} glow={receiverGlow === "comms"} phaseKey="comms" currentPhase={currentPhase} />
             </div>
           </div>
         </div>

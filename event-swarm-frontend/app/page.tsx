@@ -18,7 +18,10 @@ export default function Page() {
   }, [router]);
 
   return (
-    <main className="relative h-screen w-screen bg-black flex flex-col items-center justify-center overflow-hidden gap-6">
+    <main
+      style={{ fontFamily: "var(--font-geist-sans), Geist, sans-serif" }}
+      className="relative h-screen w-screen bg-black flex flex-col items-center justify-center overflow-hidden gap-6"
+    >
 
       <motion.h1
         initial={{ opacity: 0, y: 20 }}

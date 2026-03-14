@@ -1,16 +1,30 @@
 // components/dashboard/agent-node.tsx
 "use client";
 
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useRef } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { Zap, CheckCircle2, Loader2, AlertCircle } from "lucide-react";
 import { AgentNodeProps } from "../../app/type/swarm";
 
-export const AgentNode = ({ icon: Icon, title, data, glow, isRoot }: AgentNodeProps) => {
+// Rich activity messages per agent title
+const ACTIVITY_MESSAGES: Record<string, string[]> = {
+  "User":               ["📤 Sending command...", "💬 Talking to supervisor...", "✅ Input received!"],
+  "Supervisor":         ["🧠 Analyzing task scope...", "📋 Delegating to agents...", "🔍 Reviewing strategy...", "⚡ Coordinating swarm..."],
+  "Content Strategist": ["✍️ Drafting captions...", "📸 Crafting social posts...", "🎯 Targeting audience...", "🔥 Writing engaging copy..."],
+  "Art Director":       ["🎨 Generating visuals...", "🖼️ Composing layout...", "✨ Polishing design...", "🖌️ Applying brand palette..."],
+  "Scheduler":          ["📅 Building timeline...", "⏰ Allocating time slots...", "🗓️ Syncing calendar...", "🚀 Finalizing schedule..."],
+  "Communications":     ["✉️ Drafting email...", "📣 Personalizing message...", "📨 Preparing bulk send...", "💌 Polishing subject line..."],
+};
+
+const DEFAULT_MESSAGES = ["🤖 Processing request...", "⚙️ Working hard...", "🧮 Crunching data...", "💡 Thinking big..."];
+
+export const AgentNode = ({ icon: Icon, title, data, glow, isRoot, phaseKey, currentPhase }: AgentNodeProps) => {
   const [isHovered, setIsHovered] = useState(false);
   const [taskHistory, setTaskHistory] = useState<string[]>([]);
+  const [activityIdx, setActivityIdx] = useState(0);
+  const cycleRef = useRef<NodeJS.Timeout | null>(null);
 
-  // Automatically build a history of tasks as they come in from the socket
+  // Real data task history
   useEffect(() => {
     if (data.task && data.task !== "Idle" && data.task !== "") {
       setTaskHistory((prev) => {
@@ -20,16 +34,51 @@ export const AgentNode = ({ icon: Icon, title, data, glow, isRoot }: AgentNodePr
     }
   }, [data.task]);
 
-  // Detect if the agent is waiting for user approval
-  const isWaiting = 
-    data.status?.toLowerCase().includes("waiting") || 
+  // A node is "active" if:
+  // 1. The current phase matches this node's key (persistent, whole-phase duration), OR
+  // 2. The supervisor node is always active as long as any phase is running, OR
+  // 3. The node is mid-run per its own status
+  const PHASE_TO_KEY: Record<string, string> = {
+    "content_strategist": "content",
+    "content": "content",
+    "art_director": "art",
+    "art": "art",
+    "scheduler": "scheduler",
+    "communications": "comms",
+    "comms": "comms",
+    "supervisor": "supervisor",
+  };
+  const activePhaseKey = currentPhase ? PHASE_TO_KEY[currentPhase] : null;
+  const isActive =
+    glow ||
+    data.status === "running" ||
+    (phaseKey === "supervisor" && currentPhase !== null) || // supervisor always active during swarm
+    activePhaseKey === phaseKey;
+
+  // Cycle activity messages continuously while active
+  useEffect(() => {
+    if (isActive) {
+      cycleRef.current = setInterval(() => {
+        setActivityIdx((i) => i + 1);
+      }, 1800);
+    } else {
+      if (cycleRef.current) clearInterval(cycleRef.current);
+    }
+    return () => { if (cycleRef.current) clearInterval(cycleRef.current); };
+  }, [isActive]);
+
+  const messages = ACTIVITY_MESSAGES[title] || DEFAULT_MESSAGES;
+  const currentActivity = messages[activityIdx % messages.length];
+
+  const isWaiting =
+    data.status?.toLowerCase().includes("waiting") ||
     data.status?.toLowerCase().includes("approval") ||
     data.task?.toLowerCase().includes("approval");
 
   return (
-    <div 
-      className={`flex flex-col items-center w-40 relative group transition-all ${isHovered ? "z-50" : "z-10"}`}
-      onMouseEnter={() => setIsHovered(true)}
+    <div
+      className={`flex flex-col items-center w-28 sm:w-32 relative group transition-all ${isHovered ? "z-50" : "z-10"}`}
+      onMouseEnter={() => { setIsHovered(true); setActivityIdx(0); }}
       onMouseLeave={() => setIsHovered(false)}
     >
       {/* Arrival ring animation */}
@@ -54,7 +103,7 @@ export const AgentNode = ({ icon: Icon, title, data, glow, isRoot }: AgentNodePr
             : {}
         }
         transition={{ duration: 1.2, repeat: Infinity }}
-        className={`relative w-18 h-18 rounded-full flex items-center justify-center border-4 z-10 transition-colors duration-300 ${
+        className={`relative w-14 h-14 sm:w-16 sm:h-16 rounded-full flex items-center justify-center border-4 z-10 transition-colors duration-300 ${
           data.status === "running"
             ? "border-[#00e5ff] bg-[#00e5ff]"
             : isWaiting
@@ -62,21 +111,21 @@ export const AgentNode = ({ icon: Icon, title, data, glow, isRoot }: AgentNodePr
             : "border-[#334155] bg-[#1e293b]"
         }`}
       >
-        <Icon className={`w-8 h-8 ${data.status === "running" ? "text-black" : isWaiting ? "text-yellow-400" : "text-white"}`} />
-        
+        <Icon className={`w-6 h-6 sm:w-8 sm:h-8 ${data.status === "running" ? "text-black" : isWaiting ? "text-yellow-400" : "text-white"}`} />
+
         {isWaiting ? (
           <span className="absolute -top-1 -right-1 w-4 h-4 bg-yellow-400 rounded-full border-2 border-[#0a1017] shadow-[0_0_10px_rgba(250,204,21,0.8)] animate-pulse z-20" />
         ) : (
           <Zap className={`absolute top-2 right-2 w-4 h-4 ${data.status === "running" ? "text-black" : "text-gray-500"}`} />
         )}
-        
+
         {isRoot && <div className="absolute inset-0 rounded-full border-2 border-white/20 animate-pulse pointer-events-none" />}
       </motion.div>
 
       {/* Labels */}
-      <div className="flex flex-col items-center text-center mt-3 h-15 z-10">
-        <span className="text-white text-2xl font-semibold whitespace-nowrap px-2 rounded-md">{title}</span>
-        <span className={`text-[10px] max-w-32.5 line-clamp-1 bg-[#0a1017] px-2 mt-1 rounded-sm ${isWaiting ? "text-yellow-400" : "text-gray-400"}`}>
+      <div className="flex flex-col items-center text-center mt-3 h-12 sm:h-15 z-10">
+        <span className="text-white text-sm sm:text-base font-semibold whitespace-nowrap px-1 rounded-md">{title}</span>
+        <span className={`text-[9px] sm:text-[10px] max-w-28 sm:max-w-32.5 line-clamp-1 bg-[#0a1017] px-2 mt-1 rounded-sm ${isWaiting ? "text-yellow-400" : "text-gray-400"}`}>
           {isWaiting ? "Waiting for Approval..." : data.task || "idle"}
         </span>
       </div>
@@ -102,17 +151,41 @@ export const AgentNode = ({ icon: Icon, title, data, glow, isRoot }: AgentNodePr
           >
             <div className="flex items-center gap-2 border-b border-[#1e293b] pb-2 mb-3">
               <Icon className={`w-4 h-4 ${isWaiting ? "text-yellow-400" : "text-[#00e5ff]"}`} />
-              <span className="text-white text-xl font-semibold tracking-wide">{title} Log</span>
+              <span className="text-white text-sm font-semibold tracking-wide">{title} Log</span>
             </div>
 
             <div className="flex flex-col gap-3 max-h-48 overflow-y-auto pr-1">
-              {taskHistory.length === 0 ? (
-                <span className="text-xs text-gray-500 italic">No activity yet...</span>
+              {isActive ? (
+                <>
+                  <AnimatePresence mode="wait">
+                    <motion.div
+                      key={activityIdx}
+                      initial={{ opacity: 0, y: 6 }}
+                      animate={{ opacity: 1, y: 0 }}
+                      exit={{ opacity: 0, y: -6 }}
+                      transition={{ duration: 0.3 }}
+                      className="flex items-center gap-2"
+                    >
+                      <Loader2 className="w-4 h-4 text-[#00e5ff] animate-spin mt-px shrink-0" />
+                      <span className="text-xs text-white font-medium leading-relaxed">{currentActivity}</span>
+                    </motion.div>
+                  </AnimatePresence>
+                  {taskHistory.slice(-2).map((t, i) => (
+                    <div key={i} className="flex items-start gap-2">
+                      <CheckCircle2 className="w-4 h-4 text-green-400 mt-px shrink-0" />
+                      <span className="text-xs text-gray-500 line-through leading-relaxed">{t}</span>
+                    </div>
+                  ))}
+                </>
+              ) : taskHistory.length === 0 ? (
+                <div className="flex flex-col gap-1">
+                  <span className="text-xs text-gray-500 italic">Waiting to be activated...</span>
+                  <span className="text-[10px] text-gray-600">Start the swarm to see activity here.</span>
+                </div>
               ) : (
                 taskHistory.map((t, i) => {
                   const isLast = i === taskHistory.length - 1;
                   const isCurrent = isLast && data.status === "running";
-
                   return (
                     <div key={i} className="flex items-start gap-2">
                       {isWaiting && isLast ? (
@@ -122,15 +195,11 @@ export const AgentNode = ({ icon: Icon, title, data, glow, isRoot }: AgentNodePr
                       ) : (
                         <CheckCircle2 className="w-4 h-4 text-green-400 mt-px shrink-0" />
                       )}
-                      <span 
-                        className={`text-xs leading-relaxed ${
-                          isCurrent 
-                            ? 'text-white font-medium' 
-                            : isWaiting && isLast 
-                            ? 'text-yellow-400 font-medium' 
-                            : 'text-gray-500 line-through'
-                        }`}
-                      >
+                      <span className={`text-xs leading-relaxed ${
+                        isCurrent ? "text-white font-medium"
+                        : isWaiting && isLast ? "text-yellow-400 font-medium"
+                        : "text-gray-500 line-through"
+                      }`}>
                         {isWaiting && isLast ? "Waiting for Approval" : t}
                       </span>
                     </div>

@@ -3,7 +3,7 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 
-export default function EventForm() {
+export default function EventForm({ userId }: { userId?: string }) {
 
   const router = useRouter();
 
@@ -17,8 +17,6 @@ export default function EventForm() {
   const [loading, setLoading] = useState(false);
 
   const submit = async () => {
-    const user = await fetch("/api/auth/me").then(r => r.json());
-
     
     if (!eventName || !eventDate || !eventType) {
       alert("Please fill all event fields");
@@ -30,7 +28,7 @@ export default function EventForm() {
     formData.append("event_name", eventName);
     formData.append("event_date", eventDate);
     formData.append("event_type", eventType);
-formData.append("created_by", user.user._id)
+    if (userId) formData.append("created_by", userId);
     if (scheduleFile) {
       formData.append("schedule_csv", scheduleFile);
     }
@@ -43,7 +41,7 @@ formData.append("created_by", user.user._id)
 
       setLoading(true);
 
-      const res = await fetch("/api/voice/create", {
+      const res = await fetch("/api/job", {
         method: "POST",
         body: formData
       });

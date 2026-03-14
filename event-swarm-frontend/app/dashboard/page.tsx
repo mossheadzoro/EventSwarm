@@ -16,6 +16,7 @@ import { socket } from "@/lib/socket";
 
 import StarfieldBackground from "@/components/dashboard/swarm-background";
 import { Job } from "../type/job";
+import { OnboardingTour } from "@/components/onboarding-tour";
 
 export default function DashboardPage() {
   const [jobs, setJobs] = useState<Job[]>([]);
@@ -219,6 +220,37 @@ export default function DashboardPage() {
     };
   }, []);
 
+  // --- AUTO-SCROLL WIDGETS WHEN PHASE CHANGES (via ai_chat_update) ---
+  useEffect(() => {
+    const handleChatUpdate = (e: any) => {
+      const phase = e.detail?.phase;
+      if (!phase) return;
+
+      // Small delay so Lenis has time to initialize on phase transition
+      setTimeout(() => {
+        switch (phase) {
+          case "content_strategist":
+          case "content":
+          case "art_director": // No art widget — scroll to social instead
+          case "art":
+            scrollToWidget(socialRef);
+            break;
+          case "communications":
+          case "comms":
+            scrollToWidget(emailRef);
+            break;
+          case "scheduler":
+            scrollToWidget(scheduleRef);
+            break;
+        }
+      }, 400);
+    };
+
+    window.addEventListener("ai_chat_update", handleChatUpdate);
+    return () => window.removeEventListener("ai_chat_update", handleChatUpdate);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   // --- TAGLINE APPROVE HANDLER ---
   const handleTaglineApprove = async () => {
     if (!activeThreadId) return;
@@ -241,6 +273,7 @@ export default function DashboardPage() {
   return (
     <div className="h-screen flex flex-col bg-[#080d12] text-white overflow-hidden">
       <StarfieldBackground />
+      <OnboardingTour />
 
       <div className="relative z-20">
         <DashboardHeader />
@@ -248,8 +281,8 @@ export default function DashboardPage() {
 
       <div className="flex flex-1 overflow-hidden relative z-10">
         {/* Left Side: Swarm Engine */}
-        <div className="w-[50%] p-8 overflow-hidden relative">
-          <div className="relative z-10">
+        <div className="w-full lg:w-[55%] xl:w-[55%] p-4 sm:p-8 overflow-y-auto overflow-x-hidden relative rocket-scrollbar">
+          <div className="relative z-10 w-full min-h-full flex flex-col justify-start pt-4 sm:pt-8 pb-32 sm:pb-64 object-top">
             {loading ? (
               <div className="text-gray-400">Loading swarm...</div>
             ) : (
@@ -269,7 +302,7 @@ export default function DashboardPage() {
         {/* Right Side: Scrollable Widgets */}
         <div
           ref={widgetContainerRef}
-          className="relative flex-1 overflow-y-scroll overflow-x-hidden px-16 py-16 space-y-24 border-none custom-scrollbar"
+          className="relative flex-1 lg:w-[45%] xl:w-[50%] overflow-y-scroll overflow-x-hidden px-4 sm:px-8 lg:px-12 py-10 sm:py-16 space-y-16 lg:space-y-24 border-none rocket-scrollbar"
         >
           {/* WIDGET 0: TAGLINES (Conditional) */}
           {extractedTaglines.length > 0 && (
@@ -279,18 +312,17 @@ export default function DashboardPage() {
           )}
 
           {/* WIDGET 1: SOCIAL */}
-          <div ref={(el: any) => { socialRef.current = el; widgetRefs.current[1] = el; }} className="max-w-lg mx-auto transition-transform duration-300 origin-center">
+          <div id="step-widget-social" ref={(el: any) => { socialRef.current = el; widgetRefs.current[1] = el; }} className="max-w-lg mx-auto transition-transform duration-300 origin-center">
             <SocialWidget activeJob={activeJob} />
           </div>
 
           {/* WIDGET 2: EMAIL */}
-          {/* WIDGET 2: EMAIL */}
-          <div ref={(el: any) => { emailRef.current = el; widgetRefs.current[2] = el; }} className="max-w-lg mx-auto transition-transform duration-300 origin-center">
+          <div id="step-widget-email" ref={(el: any) => { emailRef.current = el; widgetRefs.current[2] = el; }} className="max-w-lg mx-auto transition-transform duration-300 origin-center">
             <EmailWidget activeJob={activeJob} activeThreadId={activeThreadId} />
           </div>
 
           {/* WIDGET 3: SCHEDULE */}
-          <div ref={(el: any) => { scheduleRef.current = el; widgetRefs.current[3] = el; }} className="max-w-lg mx-auto transition-transform duration-300 origin-center">
+          <div id="step-widget-schedule" ref={(el: any) => { scheduleRef.current = el; widgetRefs.current[3] = el; }} className="max-w-lg mx-auto transition-transform duration-300 origin-center">
             <SchedulingWidget activeJob={activeJob} />
           </div>
         </div>

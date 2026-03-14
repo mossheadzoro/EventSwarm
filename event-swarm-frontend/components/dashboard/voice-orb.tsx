@@ -9,12 +9,41 @@ import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 
 import { socket } from "@/lib/socket";
+import { createPortal } from "react-dom";
 
 type Message = {
   id: string;
   sender: "user" | "supervisor";
   text: string;
 };
+
+/* Typewriter component — reveals text char-by-char like ChatGPT */
+function TypingMessage({ text, onDone }: { text: string; onDone: () => void }) {
+  const [displayed, setDisplayed] = useState("");
+  const indexRef = useRef(0);
+
+  useEffect(() => {
+    indexRef.current = 0;
+    setDisplayed("");
+    const interval = setInterval(() => {
+      const next = indexRef.current + 1;
+      setDisplayed(text.slice(0, next));
+      indexRef.current = next;
+      if (next >= text.length) {
+        clearInterval(interval);
+        onDone();
+      }
+    }, 10); // ~10ms per char — fast but visible
+    return () => clearInterval(interval);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [text]);
+
+  return (
+    <ReactMarkdown remarkPlugins={[remarkGfm]}>
+      {displayed || " "}
+    </ReactMarkdown>
+  );
+}
 
 export function FloatingVoice({
   activeJob,
@@ -32,6 +61,7 @@ export function FloatingVoice({
   const [isOpen, setIsOpen] = useState(false);
   const [inputText, setInputText] = useState("");
   const [isTyping, setIsTyping] = useState(false);
+  const [typingIds, setTypingIds] = useState<Set<string>>(new Set());
 
   const [messages, setMessages] = useState<Message[]>([
     {
@@ -57,30 +87,9 @@ export function FloatingVoice({
     endRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages]);
 
-  /* ---------------- POSITION ---------------- */
-
-  const [position, setPosition] = useState({ x: 0, y: 0 });
   const [isMounted, setIsMounted] = useState(false);
 
   useEffect(() => {
-    const orbSize = 64;
-    const padding = 24;
-
-    const saved = localStorage.getItem("voiceOrbPosition");
-
-    if (saved) {
-      try {
-        setPosition(JSON.parse(saved));
-        setIsMounted(true);
-        return;
-      } catch {}
-    }
-
-    setPosition({
-      x: window.innerWidth - orbSize - padding,
-      y: window.innerHeight - orbSize - padding,
-    });
-
     setIsMounted(true);
   }, []);
 
@@ -90,18 +99,24 @@ export function FloatingVoice({
     if (!initialAiMessage || initialAiMessage.length === 0) return;
 
     const aiMessages = initialAiMessage
-      .filter(
-        (m: any) =>
-          (m.role === "AIMessage" || m.role === "ToolMessage") &&
-          !m.content.includes("ROUTE_TO")
-      )
-      .map((m: any) => ({
-        id: Date.now().toString() + Math.random(),
-        sender: "supervisor" as const,
-        text: m.content,
-      }));
+      .filter((m: any) => m.role === "AIMessage" || m.role === "ToolMessage")
+      .map((m: any) => {
+        // Strip the routing commands so the user still sees the core message
+        let cleanText = m.content || "";
+        cleanText = cleanText.replace(/ROUTE_TO:.*$/, "").trim();
 
-    setMessages((prev) => [...prev, ...aiMessages]);
+        return {
+          id: Date.now().toString() + Math.random(),
+          sender: "supervisor" as const,
+          text: cleanText,
+        };
+      })
+      .filter((m: any) => m.text.length > 0);
+
+    const newMsgs = aiMessages;
+    setMessages((prev) => [...prev, ...newMsgs]);
+    // Trigger typewriter animation for newly added messages
+    setTypingIds(new Set(newMsgs.map((m: any) => m.id)));
     setIsOpen(true);
   }, [initialAiMessage]);
 
@@ -109,15 +124,17 @@ export function FloatingVoice({
 
   useEffect(() => {
     socket.on("supervisor_reply", (data: { text: string }) => {
+      const newId = Date.now().toString();
       setMessages((prev) => [
         ...prev,
         {
-          id: Date.now().toString(),
-          sender: "supervisor",
+          id: newId,
+          sender: "supervisor" as const,
           text: data.text,
         },
       ]);
-
+      // Trigger typewriter for this message
+      setTypingIds((prev) => new Set([...prev, newId]));
       setIsTyping(false);
     });
 
@@ -146,44 +163,8 @@ export function FloatingVoice({
     return () => window.removeEventListener("external_chat_command", handleExternalCommand);
   }, []);
 
-  /* ---------------- DRAG ---------------- */
-
-  const handleDragStart = () => {
-    isDragging.current = true;
-  };
-
-  const handleDragEnd = (_: any, info: any) => {
-    const screenWidth = window.innerWidth;
-    const screenHeight = window.innerHeight;
-
-    const orbSize = 64;
-    const padding = 24;
-
-    const snapX =
-      info.point.x < screenWidth / 2
-        ? padding
-        : screenWidth - orbSize - padding;
-
-    let snapY = info.point.y;
-
-    if (snapY < padding) snapY = padding;
-
-    if (snapY > screenHeight - orbSize - padding)
-      snapY = screenHeight - orbSize - padding;
-
-    const newPos = { x: snapX, y: snapY };
-
-    setPosition(newPos);
-
-    localStorage.setItem("voiceOrbPosition", JSON.stringify(newPos));
-
-    setTimeout(() => {
-      isDragging.current = false;
-    }, 150);
-  };
-
   const toggleChat = () => {
-    if (!isDragging.current) setIsOpen(!isOpen);
+    setIsOpen(!isOpen);
   };
 
   /* ---------------- RECORDING ---------------- */
@@ -333,14 +314,15 @@ export function FloatingVoice({
       const aiMessages =
         data.messages?.filter((m: any) => m.role === "AIMessage") || [];
 
-      setMessages((prev) => [
-        ...prev,
-        ...aiMessages.map((m: any) => ({
-          id: Date.now().toString() + Math.random(),
-          sender: "supervisor",
-          text: m.content,
-        })),
-      ]);
+      const newMsgs = aiMessages.map((m: any) => ({
+        id: Date.now().toString() + Math.random(),
+        sender: "supervisor" as const,
+        text: m.content,
+      }));
+
+      setMessages((prev) => [...prev, ...newMsgs]);
+      // Trigger typewriter animation for each new AI message
+      setTypingIds(new Set(newMsgs.map((m: any) => m.id)));
     } catch (err) {
       console.error("Message send error", err);
     } finally {
@@ -350,60 +332,86 @@ export function FloatingVoice({
 
   if (!isMounted) return null;
 
-  const isLeftSide = position.x < window.innerWidth / 2;
-
-  return (
+  const content = (
     <>
       <AnimatePresence>
         {isOpen && (
           <motion.div
-            initial={{ opacity: 0, scale: 0.85 }}
-            animate={{ opacity: 1, scale: 1 }}
-            exit={{ opacity: 0 }}
-            className={`fixed bottom-28 z-40 w-105 sm:w-130 flex flex-col bg-[#0a1017]/95 border border-[#1e293b] rounded-2xl backdrop-blur-xl shadow-2xl ${
-              isLeftSide ? "left-6" : "right-6"
-            }`}
-            style={{ height: "600px" }}
+            initial={{ opacity: 0, y: -20, scale: 0.95 }}
+            animate={{ opacity: 1, y: 0, scale: 1 }}
+            exit={{ opacity: 0, scale: 0.95 }}
+            className="fixed top-24 left-1/2 -translate-x-1/2 z-40 w-[90vw] sm:w-[520px] max-w-full flex flex-col bg-[#0d1117] border border-[#30363d] rounded-2xl shadow-2xl"
+            style={{ height: "600px", fontFamily: "var(--font-geist-sans, 'Inter', ui-sans-serif, system-ui, sans-serif)" }}
           >
             {/* Header */}
-            <div className="flex items-center justify-between px-5 py-4 border-b border-[#1e293b]">
+            <div className="flex items-center justify-between px-5 py-4 border-b border-[#30363d]">
               <div className="flex items-center gap-2">
                 <Brain className="w-5 h-5 text-[#00e5ff]" />
-                <span className="text-white font-semibold text-[15px]">
-                  EventSwarm Supervisor
+                <span
+                  className="text-white font-bold text-[15px] tracking-wider"
+                  style={{ fontFamily: "var(--font-orbitron, 'Orbitron', sans-serif)", letterSpacing: "0.05em" }}
+                >
+                  Event Swarm
                 </span>
               </div>
 
               <button onClick={() => setIsOpen(false)}>
-                <X className="w-5 h-5 text-gray-400" />
+                <X className="w-5 h-5 text-gray-400 hover:text-white transition-colors" />
               </button>
             </div>
 
             {/* Messages */}
-            <div className="flex-1 overflow-y-auto p-5 space-y-4 custom-scrollbar">
-              {messages.map((m) => (
+            <div className="flex-1 overflow-y-auto p-5 space-y-5 custom-scrollbar">
+              {messages.map((m, idx) => (
                 <div
                   key={m.id}
                   className={`flex ${
-                    m.sender === "user" ? "justify-end" : "justify-start"
+                    m.sender === "user" ? "justify-end" : "justify-start items-end gap-2"
                   }`}
                 >
+                  {m.sender === "supervisor" && (
+                    <div className="w-7 h-7 rounded-full bg-[#00e5ff] flex-shrink-0 flex items-center justify-center mb-1">
+                      <Brain className="w-3.5 h-3.5 text-black" />
+                    </div>
+                  )}
                   <div
-                    className={`max-w-[80%] p-4 rounded-2xl text-[15px] leading-relaxed whitespace-pre-wrap ${
+                    className={`max-w-[78%] px-4 py-3 rounded-2xl text-[13.5px] leading-relaxed ${
                       m.sender === "user"
-                        ? "bg-[#00e5ff] text-black"
-                        : "bg-[#1e293b] text-white"
+                        ? "bg-[#1f6feb] text-white rounded-br-sm"
+                        : "bg-[#161b22] text-[#e6edf3] rounded-bl-sm border border-[#30363d]"
                     }`}
                   >
-                    <ReactMarkdown remarkPlugins={[remarkGfm]}>
-                      {m.text}
-                    </ReactMarkdown>
+                    {/* Animate fresh supervisor messages with typewriter effect */}
+                    {m.sender === "supervisor" && typingIds.has(m.id) ? (
+                      <TypingMessage
+                        text={m.text}
+                        onDone={() => setTypingIds((prev) => {
+                          const next = new Set(prev);
+                          next.delete(m.id);
+                          return next;
+                        })}
+                      />
+                    ) : (
+                      <ReactMarkdown remarkPlugins={[remarkGfm]}>
+                        {m.text}
+                      </ReactMarkdown>
+                    )}
                   </div>
                 </div>
               ))}
 
+              {/* ChatGPT-style typing animation */}
               {isTyping && (
-                <Loader2 className="w-5 h-5 animate-spin text-[#00e5ff]" />
+                <div className="flex items-end gap-2">
+                  <div className="w-7 h-7 rounded-full bg-[#00e5ff] flex-shrink-0 flex items-center justify-center">
+                    <Brain className="w-3.5 h-3.5 text-black" />
+                  </div>
+                  <div className="bg-[#161b22] border border-[#30363d] px-4 py-3 rounded-2xl rounded-bl-sm flex items-center gap-1.5">
+                    <span className="w-2 h-2 rounded-full bg-[#8b949e] animate-bounce" style={{ animationDelay: '0ms', animationDuration: '1s' }} />
+                    <span className="w-2 h-2 rounded-full bg-[#8b949e] animate-bounce" style={{ animationDelay: '160ms', animationDuration: '1s' }} />
+                    <span className="w-2 h-2 rounded-full bg-[#8b949e] animate-bounce" style={{ animationDelay: '320ms', animationDuration: '1s' }} />
+                  </div>
+                </div>
               )}
 
               <div ref={endRef} />
@@ -455,21 +463,20 @@ export function FloatingVoice({
         )}
       </AnimatePresence>
 
-      {/* Floating Orb */}
+      {/* Floating Orb fixed to Top Center, just below header */}
       <motion.div
-        drag
-        dragMomentum={false}
-        onDragStart={handleDragStart}
-        onDragEnd={handleDragEnd}
+        id="step-voice-orb"
         onClick={toggleChat}
-        animate={position}
-        className="fixed z-50 cursor-grab"
-        style={{ left: 0, top: 0 }}
+        whileHover={{ scale: 1.1 }}
+        whileTap={{ scale: 0.95 }}
+        className="fixed z-50 top-4 left-1/2 -translate-x-1/2 cursor-pointer"
       >
-        <div className="w-16 h-16 rounded-full bg-[#00e5ff] flex items-center justify-center shadow-lg">
-          <Mic className="w-7 h-7 text-black" />
+        <div className="w-14 h-14 rounded-full bg-[#00e5ff] flex items-center justify-center shadow-[0_0_20px_rgba(0,229,255,0.5)]">
+          <Mic className="w-6 h-6 text-black" />
         </div>
       </motion.div>
     </>
   );
+
+  return createPortal(content, document.body);
 }

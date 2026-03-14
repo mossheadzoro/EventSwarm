@@ -13,9 +13,11 @@ export type Packet = {
 };
 
 export type AgentNodeProps = {
-  icon: any; // Or React.ElementType if you want strict typing for Lucide icons
+  icon: any;
   title: string;
   data: AgentState;
   glow: boolean;
   isRoot?: boolean;
+  phaseKey?: string;
+  currentPhase?: string | null;
 };
