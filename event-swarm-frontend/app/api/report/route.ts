@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 
-const BACKEND_URL = "https://bjpbbx0r-9000.inc1.devtunnels.ms";
+const BACKEND_URL = process.env.NEXT_PUBLIC_API_URL || "https://bjpbbx0r-9000.inc1.devtunnels.ms";
 
 export async function GET() {
   try {
