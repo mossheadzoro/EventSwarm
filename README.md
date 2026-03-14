@@ -30,6 +30,27 @@ Each AI agent is responsible for a specific task:
 These agents **communicate through a real-time swarm engine** to execute tasks autonomously.
 
 ---
+## 🌐 Live Demo
+
+You can explore the **EventSwarm frontend interface** here:
+
+🚀 **Frontend Deployment**
+👉 https://event-swarm.vercel.app/
+
+The backend services (AI agents, scheduling engine, and APIs) are **currently not deployed publicly yet**.
+
+🙏 *Sorry for the inconvenience — the backend  will be deployed soon.*
+
+Once deployed, the live demo will support:
+
+* 🤖 Full AI swarm execution
+* 📅 Calendar conflict detection
+* 📊 CSV schedule timeline generation
+* 🎤 Voice command event control
+
+Stay tuned for the **complete autonomous event management experience.**
+
+---
 
 # 🛰️ Features
 
