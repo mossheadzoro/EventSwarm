@@ -12,3 +12,10 @@ langgraph-checkpoint-sqlite
 pandas
 scikit-learn
 numpy
+cloudinary
+pillow
+langchain-google-genai
+google-genai
+markdown
+langgraph-checkpoint-mongodb
+reportlab

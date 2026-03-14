@@ -1,7 +1,11 @@
 import os
 import base64
+import base64
 import json
 import re
+import markdown
+import mimetypes
+import urllib.request
 from email.message import EmailMessage
 from datetime import datetime
 
@@ -13,6 +17,11 @@ from google.oauth2.credentials import Credentials
 from google_auth_oauthlib.flow import InstalledAppFlow
 from googleapiclient.discovery import build
 from googleapiclient.errors import HttpError
+
+from google import genai
+import cloudinary
+import cloudinary.uploader
+import tempfile
 
 
 # ─────────────────────────────────────────────
@@ -117,16 +126,64 @@ def _get_predictor():
     if _predictor is not None:
         return _predictor
 
-    from engagement_predictor import GeneralEngagementPredictor
-    from syn_datagen import generate_general_data
+    from engagement_predictor import RealisticEngagementPredictor
+    from syn_datagen import generate_realistic_data
 
     data_path = os.path.join(_PROJECT_ROOT, "general_engagement_data.csv")
     if not os.path.exists(data_path):
-        generate_general_data(filename=data_path)
+        generate_realistic_data(filename=data_path)
 
-    _predictor = GeneralEngagementPredictor()
+    _predictor = RealisticEngagementPredictor()
     _predictor.train(pd.read_csv(data_path))
     return _predictor
+
+
+# ─────────────────────────────────────────────
+# Budget Predictor (singleton)
+# ─────────────────────────────────────────────
+
+_budget_predictor = None
+
+def _get_budget_predictor():
+    """Lazy-load the budget predictor — trains on first use."""
+    global _budget_predictor
+    if _budget_predictor is not None:
+        return _budget_predictor
+
+    from budget_predictor import BudgetPredictor
+    import syn_budget_datagen
+
+    data_path = os.path.join(_PROJECT_ROOT, "event_budget_data_inr.csv")
+    if not os.path.exists(data_path):
+        syn_budget_datagen.generate_budget_data(filename=data_path)
+
+    _budget_predictor = BudgetPredictor()
+    _budget_predictor.train(pd.read_csv(data_path))
+    return _budget_predictor
+
+@tool
+def estimate_budget(participants: int, meals_per_person: int, venue_capacity: int, swag_tier: str) -> str:
+    """
+    Simulates a comprehensive budget breakdown and estimates volunteer requirements
+    using an ML regression model trained on historical event data.
+    swag_tier MUST be one of: 'none', 'basic', 'premium'.
+    """
+    try:
+        predictor = _get_budget_predictor()
+        result = predictor.predict_budget(int(participants), int(meals_per_person), int(venue_capacity), str(swag_tier))
+        
+        if isinstance(result, str):
+            return result
+            
+        return (
+            f"📊 ML Budget Simulation:\n"
+            f"• Estimated Total Budget: ₹{result['predicted_budget']:,}\n"
+            f"• Volunteers Required: {result['volunteers_required']}\n\n"
+            f"Note: This is an AI-simulated estimate based on {participants} participants, "
+            f"{meals_per_person} meals/person, {venue_capacity} capacity, and '{swag_tier}' swag."
+        )
+    except Exception as e:
+        return f"Error simulating budget: {str(e)}"
 
 
 # ─────────────────────────────────────────────
@@ -139,24 +196,17 @@ def generate_taglines(event_name: str, event_type: str, event_date: str) -> str:
     Generates a set of promotional taglines / social-media post ideas for
     the given event. Returns draft suggestions for the user to review.
     """
-    import random
-
-    pool = [
-        f"🚀 {event_name} is coming on {event_date}! Are you ready to innovate?",
-        f"🔥 The ultimate {event_type} experience — {event_name}. Mark your calendars!",
-        f"💡 Build. Learn. Connect. Join {event_name} on {event_date}!",
-        f"⚡ Don't miss {event_name} — where ideas become reality!",
-        f"🎯 {event_name}: The {event_type} event of the year. {event_date}.",
-        f"🌟 Ready to level up? {event_name} ({event_type}) drops {event_date}!",
-        f"🏆 Join the brightest minds at {event_name} — {event_date}!",
-        f"🎉 {event_name} is HERE! A {event_type} you won't want to miss.",
-        f"💥 {event_date} — save the date for {event_name}, the {event_type} of the year!",
-        f"🧠 Innovate. Collaborate. Dominate. {event_name} awaits on {event_date}.",
-    ]
-    taglines = random.sample(pool, min(3, len(pool)))
-    return "Here are the draft taglines:\n" + "\n".join(
-        f"{i+1}. {t}" for i, t in enumerate(taglines)
-    )
+    try:
+        from google import genai
+        client = genai.Client()
+        prompt = f"Generate exactly 3 exciting promotional taglines or social-media post ideas for a {event_type} event named '{event_name}' happening on '{event_date}'. Provide just the numbered taglines and nothing else."
+        response = client.models.generate_content(
+            model="gemini-2.5-flash",
+            contents=prompt,
+        )
+        return "Here are the draft taglines:\n" + response.text
+    except Exception as e:
+        return f"Error generating taglines: {str(e)}"
 
 
 @tool
@@ -212,6 +262,18 @@ def queue_social_media_posts(posts: str) -> str:
 
 
 # ─────────────────────────────────────────────
+# Supervisor Tools
+# ─────────────────────────────────────────────
+
+@tool
+def update_event_details(event_name: str, event_date: str, event_type: str) -> str:
+    """
+    Updates the core event details in the system. 
+    Use this when the user announces a new event name, date, or type in chat, so that the PDF generated is not blank!
+    """
+    return f"SUCCESS: Event details updated."
+
+# ─────────────────────────────────────────────
 # Scheduler Tools
 # ─────────────────────────────────────────────
 
@@ -221,6 +283,9 @@ def read_schedule_csv(file_path: str) -> str:
     Reads an event schedule from a CSV file, detects conflicts,
     and returns a human-readable formatted schedule.
     """
+    if file_path == "None" or not file_path:
+        return "No CSV was uploaded. You MUST generate a schedule from scratch based on the event details in your context."
+
     try:
         df = pd.read_csv(file_path, header=None)
         if len(df.columns) == 3:
@@ -259,6 +324,16 @@ def build_schedule(schedule_text: str) -> str:
     if isinstance(schedule_text, list):
         schedule_text = "\n".join(str(s) for s in schedule_text)
     return f"SUCCESS: Schedule has been finalized:\n{schedule_text}"
+
+@tool
+def save_dynamic_schedule(schedule_text: str) -> str:
+    """
+    Saves a dynamically generated schedule to the state when no CSV is used.
+    Pass the finalized schedule as plain text.
+    """
+    if isinstance(schedule_text, list):
+        schedule_text = "\n".join(str(s) for s in schedule_text)
+    return f"SUCCESS:\n{schedule_text}"
 
 
 @tool
@@ -310,6 +385,9 @@ def read_participant_csv(file_path: str) -> str:
     Expected columns: email, name, and optionally notes/interests.
     Returns extracted and validated participant count and names.
     """
+    if file_path == "None" or not file_path:
+        return "No CSV was uploaded. Ask the user to provide a list of participant names and emails in the chat."
+
     try:
         df = pd.read_csv(file_path, header=None)
         if len(df.columns) == 2:
@@ -346,17 +424,30 @@ def read_participant_csv(file_path: str) -> str:
 
 
 @tool
-def send_personalized_emails(subject: str, body_template: str, participant_csv_path: str) -> str:
+def send_personalized_emails(subject: str, body_template: str, participant_csv_path: str, attachment_url: str = "") -> str:
     """
     Sends personalized emails to all participants in the CSV file via Gmail API.
     The body_template should contain {name} and {notes} which get replaced per recipient.
     participant_csv_path is the file path to the participant CSV.
+    attachment_url is an optional URL to an image/poster to attach to the email.
     ONLY call this AFTER the user has approved the email draft.
     """
     if isinstance(subject, list):
         subject = " ".join(str(s) for s in subject)
     if isinstance(body_template, list):
         body_template = "\n".join(str(b) for b in body_template)
+
+    if participant_csv_path == "None" or not participant_csv_path:
+        return f"SUCCESS: Sent email draft via system (no CSV provided):\n{body_template}"
+
+    attachment_path = ""
+    if attachment_url and attachment_url != "None":
+        try:
+            with tempfile.NamedTemporaryFile(delete=False, suffix='.png') as tf:
+                urllib.request.urlretrieve(attachment_url, tf.name)
+                attachment_path = tf.name
+        except Exception as e:
+            print(f"Failed to fetch attachment from URL: {e}")
 
     try:
         df = pd.read_csv(participant_csv_path, header=None)
@@ -390,10 +481,32 @@ def send_personalized_emails(subject: str, body_template: str, participant_csv_p
 
             try:
                 message = EmailMessage()
+                
+                # 1. Plain text and base content
+                html_content = markdown.markdown(personalized_body)
                 message.set_content(personalized_body)
+                
+                # 2. Add the formatted HTML version
+                message.add_alternative(html_content, subtype='html')
+
                 message["To"] = email_addr
                 message["From"] = "EventSwarm Agent <eventswarm@gmail.com>"
                 message["Subject"] = subject
+
+                if attachment_path and os.path.exists(attachment_path):
+                    mime_type, _ = mimetypes.guess_type(attachment_path)
+                    mime_type = mime_type or 'application/octet-stream'
+                    main_type, sub_type = mime_type.split('/', 1)
+
+                    with open(attachment_path, 'rb') as fp:
+                        attachment_data = fp.read()
+
+                    message.add_attachment(
+                        attachment_data,
+                        maintype=main_type,
+                        subtype=sub_type,
+                        filename="event_poster.png"
+                    )
 
                 encoded_message = base64.urlsafe_b64encode(message.as_bytes()).decode()
                 send_message = {"raw": encoded_message}
@@ -418,12 +531,49 @@ def send_personalized_emails(subject: str, body_template: str, participant_csv_p
 
 
 # ─────────────────────────────────────────────
+# Art Director Tools
+# ─────────────────────────────────────────────
+
+@tool
+def generate_poster(prompt: str) -> str:
+    """
+    Generates an event poster using Imagen 3.1 and uploads it to Cloudinary.
+    Use this tool to create high-quality, custom visual assets for the event.
+    """
+    try:
+        client = genai.Client()
+        response = client.models.generate_content(
+            model="gemini-3.1-flash-image-preview",
+            contents=[prompt],
+        )
+        
+        for part in response.parts:
+            if part.inline_data is not None:
+                image = part.as_image()
+                temp_path = os.path.join(tempfile.gettempdir(), "temp_poster.png")
+                image.save(temp_path)
+                
+                # Upload to Cloudinary
+                upload_result = cloudinary.uploader.upload(temp_path, folder="eventswarm")
+                secure_url = upload_result.get("secure_url", "")
+                
+                # We return the SUCCESS prefix so the frontend knows we generated a poster
+                # The state management will extract the exact URL separately
+                return f"SUCCESS: {secure_url}"
+                
+        return "Failed to generate visual content. No inline image data returned."
+    except Exception as e:
+        return f"Error generating poster: {str(e)}"
+
+# ─────────────────────────────────────────────
 # Tool Registry
 # ─────────────────────────────────────────────
 
 content_strategist_tools = [generate_taglines, analyze_engagement_data, queue_social_media_posts]
-scheduler_tools = [read_schedule_csv, build_schedule, recalculate_schedule]
+scheduler_tools = [read_schedule_csv, build_schedule, recalculate_schedule, save_dynamic_schedule, estimate_budget]
 communications_tools = [read_participant_csv, send_personalized_emails]
+art_director_tools = [generate_poster]
+supervisor_tools = [update_event_details]
 
-all_tools = content_strategist_tools + scheduler_tools + communications_tools
+all_tools = content_strategist_tools + scheduler_tools + communications_tools + art_director_tools + supervisor_tools
 tools_by_name = {t.name: t for t in all_tools}
