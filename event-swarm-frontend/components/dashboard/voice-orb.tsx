@@ -355,9 +355,35 @@ export function FloatingVoice({
                 </span>
               </div>
 
-              <button onClick={() => setIsOpen(false)}>
-                <X className="w-5 h-5 text-gray-400 hover:text-white transition-colors" />
-              </button>
+              <div className="flex items-center gap-2">
+                {/* Reset Button */}
+                <button
+                  onClick={async () => {
+                    try {
+                      await fetch("/api/reset", { method: "POST" });
+                      setMessages([{
+                        id: "init",
+                        sender: "supervisor",
+                        text: "System initialized. Waiting for swarm execution...",
+                      }]);
+                      setTypingIds(new Set());
+                      setIsTyping(false);
+                    } catch (err) {
+                      console.error("Reset failed:", err);
+                    }
+                  }}
+                  title="Reset Chat"
+                  className="w-7 h-7 rounded-full flex items-center justify-center text-gray-400 hover:text-red-400 hover:bg-red-500/10 transition-all"
+                >
+                  <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                    <path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8" />
+                    <path d="M3 3v5h5" />
+                  </svg>
+                </button>
+                <button onClick={() => setIsOpen(false)}>
+                  <X className="w-5 h-5 text-gray-400 hover:text-white transition-colors" />
+                </button>
+              </div>
             </div>
 
             {/* Messages */}

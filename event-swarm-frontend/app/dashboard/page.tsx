@@ -223,7 +223,25 @@ export default function DashboardPage() {
   // --- AUTO-SCROLL WIDGETS WHEN PHASE CHANGES (via ai_chat_update) ---
   useEffect(() => {
     const handleChatUpdate = (e: any) => {
-      const phase = e.detail?.phase;
+      let phase = e.detail?.phase;
+
+      // If no explicit phase, try to detect from AI message content
+      if (!phase && e.detail?.messages) {
+        const aiContent = e.detail.messages
+          .filter((m: any) => m.role === "AIMessage")
+          .map((m: any) => m.content || "")
+          .join(" ")
+          .toLowerCase();
+
+        if (aiContent.includes("schedule") || aiContent.includes("timeline") || aiContent.includes("calendar") || aiContent.includes("csv")) {
+          phase = "scheduler";
+        } else if (aiContent.includes("email") || aiContent.includes("draft") || aiContent.includes("subject")) {
+          phase = "communications";
+        } else if (aiContent.includes("caption") || aiContent.includes("tagline") || aiContent.includes("poster") || aiContent.includes("social")) {
+          phase = "content_strategist";
+        }
+      }
+
       if (!phase) return;
 
       // Small delay so Lenis has time to initialize on phase transition
