@@ -1,3 +1,5 @@
+
+
 "use client";
 
 import React, { useEffect, useRef, useState } from "react";
@@ -7,19 +9,25 @@ import { SwarmEngine } from "@/components/swarm/swarm-engine";
 
 import SocialWidget from "@/components/dashboard/social-media-widget";
 import EmailWidget from "@/components/dashboard/email-widget";
-import SchedulingWidget from "../../components/dashboard/schedule-widget"; // <-- Import the new widget here
+import SchedulingWidget from "../../components/dashboard/schedule-widget";
+import { TaglineWidget } from "@/components/dashboard/tagline-widget"; // <-- Import new widget
 
 import { socket } from "@/lib/socket";
 
 import StarfieldBackground from "@/components/dashboard/swarm-background";
-import { Job } from "../type/job"
+import { Job } from "../type/job";
 
 export default function DashboardPage() {
   const [jobs, setJobs] = useState<Job[]>([]);
   const [activeJob, setActiveJob] = useState<Job | null>(null);
   const [loading, setLoading] = useState(true);
 
+  // --- NEW STATE FOR TAGLINES ---
+  const [extractedTaglines, setExtractedTaglines] = useState<string[]>([]);
+  const [activeThreadId, setActiveThreadId] = useState<string | null>(null);
+
   const widgetContainerRef = useRef<HTMLDivElement>(null);
+  const taglineRef = useRef<HTMLDivElement>(null); // <-- New ref
   const socialRef = useRef<HTMLDivElement>(null);
   const emailRef = useRef<HTMLDivElement>(null);
   const scheduleRef = useRef<HTMLDivElement>(null);
@@ -100,7 +108,7 @@ export default function DashboardPage() {
         const viewportCenter = container.clientHeight / 2;
 
         widgetRefs.current.forEach((el) => {
-          if (!el) return;
+          if (!el) return; // Safely skip if widget isn't rendered
           const widgetCenter = el.offsetTop + el.clientHeight / 2 - containerScrollTop;
           const distance = widgetCenter - viewportCenter;
           const normalized = distance / viewportCenter;
@@ -139,8 +147,15 @@ export default function DashboardPage() {
     lenisRef.current.scrollTo(ref.current, { offset: -80, duration: 1.2 });
   };
 
- useEffect(() => {
-    // Existing approval listener
+  // --- AUTO SCROLL WHEN TAGLINES ARRIVE ---
+  useEffect(() => {
+    if (extractedTaglines.length > 0) {
+      setTimeout(() => scrollToWidget(taglineRef), 300);
+    }
+  }, [extractedTaglines]);
+
+  // SOCKET LISTENERS
+  useEffect(() => {
     const handleApprovalNeeded = (data: any) => {
       if (data.widget === "email") scrollToWidget(emailRef);
       if (data.widget === "social") scrollToWidget(socialRef);
@@ -148,7 +163,6 @@ export default function DashboardPage() {
       if (data.widget === "analytics") scrollToWidget(analyticsRef);
     };
 
-    // NEW: Phase change listener to auto-scroll when an agent starts working
     const handlePhaseChange = (data: { phase: string }) => {
       switch (data.phase) {
         case "content_strategist":
@@ -160,15 +174,30 @@ export default function DashboardPage() {
         case "scheduler":
           scrollToWidget(scheduleRef);
           break;
-        // Optionally handle "art_director" or "supervisor" if you have widgets for them later
       }
     };
 
-    // Register socket listeners
+    // Extract taglines when supervisor replies
+    const handleSupervisorReply = (data: { text: string }) => {
+      const textLower = data.text.toLowerCase();
+      if (textLower.includes("draft taglines") || textLower.includes("taglines:")) {
+        const lines = data.text.split("\n").map(l => l.trim()).filter(l => l.length > 5);
+        const tags = lines.filter(l => 
+          !l.toLowerCase().includes("here are") && 
+          !l.toLowerCase().includes("please let me know") && 
+          !l.toLowerCase().includes("approve") &&
+          !l.toLowerCase().includes("draft taglines")
+        );
+        if (tags.length > 0) {
+          setExtractedTaglines(tags);
+        }
+      }
+    };
+
     socket.on("approval_needed", handleApprovalNeeded);
-    socket.on("agent_phase", handlePhaseChange); // Listen for phase updates
+    socket.on("agent_phase", handlePhaseChange);
+    socket.on("supervisor_reply", handleSupervisorReply); // <-- Attach new listener
     
-    // Existing job update listener
     socket.on("job_update", (updatedJob) => {
       setJobs((prev) => {
         const exists = prev.find((j) => j._id === updatedJob._id);
@@ -182,13 +211,32 @@ export default function DashboardPage() {
       });
     });
 
-    // Cleanup
     return () => {
       socket.off("approval_needed", handleApprovalNeeded);
       socket.off("agent_phase", handlePhaseChange);
+      socket.off("supervisor_reply", handleSupervisorReply);
       socket.off("job_update");
     };
   }, []);
+
+  // --- TAGLINE APPROVE HANDLER ---
+  const handleTaglineApprove = async () => {
+    if (!activeThreadId) return;
+
+    // Sync with chat orb
+    window.dispatchEvent(new CustomEvent("external_chat_command", { detail: "APPROVE" }));
+    setExtractedTaglines([]); // Hide widget
+
+    try {
+      await fetch("/api/agent/chat", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ message: "APPROVE", thread_id: activeThreadId }),
+      });
+    } catch (err) {
+      console.error("Widget approval error", err);
+    }
+  };
 
   return (
     <div className="h-screen flex flex-col bg-[#080d12] text-white overflow-hidden">
@@ -211,6 +259,7 @@ export default function DashboardPage() {
                   setJobs={setJobs}
                   activeJob={activeJob}
                   setActiveJob={setActiveJob}
+                  onThreadCreated={(id: string) => setActiveThreadId(id)} // <-- Pass ID to parent
                 />
               )
             )}
@@ -222,26 +271,29 @@ export default function DashboardPage() {
           ref={widgetContainerRef}
           className="relative flex-1 overflow-y-scroll overflow-x-hidden px-16 py-16 space-y-24 border-none custom-scrollbar"
         >
+          {/* WIDGET 0: TAGLINES (Conditional) */}
+          {extractedTaglines.length > 0 && (
+            <div ref={(el: any) => { taglineRef.current = el; widgetRefs.current[0] = el; }} className="max-w-lg mx-auto transition-transform duration-300 origin-center">
+              <TaglineWidget taglines={extractedTaglines} onApprove={handleTaglineApprove} />
+            </div>
+          )}
+
           {/* WIDGET 1: SOCIAL */}
-          <div ref={(el: any) => { socialRef.current = el; widgetRefs.current[0] = el; }} className="max-w-lg mx-auto transition-transform duration-300 origin-center">
+          <div ref={(el: any) => { socialRef.current = el; widgetRefs.current[1] = el; }} className="max-w-lg mx-auto transition-transform duration-300 origin-center">
             <SocialWidget activeJob={activeJob} />
           </div>
 
           {/* WIDGET 2: EMAIL */}
-          <div ref={(el: any) => { emailRef.current = el; widgetRefs.current[1] = el; }} className="max-w-lg mx-auto transition-transform duration-300 origin-center">
+          <div ref={(el: any) => { emailRef.current = el; widgetRefs.current[2] = el; }} className="max-w-lg mx-auto transition-transform duration-300 origin-center">
             <EmailWidget  />
           </div>
 
           {/* WIDGET 3: SCHEDULE */}
-          <div ref={(el: any) => { scheduleRef.current = el; widgetRefs.current[2] = el; }} className="max-w-lg mx-auto transition-transform duration-300 origin-center">
+          <div ref={(el: any) => { scheduleRef.current = el; widgetRefs.current[3] = el; }} className="max-w-lg mx-auto transition-transform duration-300 origin-center">
             <SchedulingWidget activeJob={activeJob} />
           </div>
-
-          
         </div>
       </div>
-      
-      
     </div>
   );
 }
