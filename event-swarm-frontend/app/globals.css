@@ -128,7 +128,7 @@
   }
 }
 
-/* Custom Rocket Scrollbar */
+/* Custom Rocket Scrollbar — Vertical */
 .rocket-scrollbar::-webkit-scrollbar {
   width: 64px;
 }
@@ -141,6 +141,30 @@
   background-position: center;
   background-color: transparent;
   background-repeat: no-repeat;
+}
+
+/* Custom Rocket Scrollbar — Horizontal (job selector) */
+.rocket-scrollbar-h::-webkit-scrollbar {
+  height: 40px;
+  background: transparent;
+}
+.rocket-scrollbar-h::-webkit-scrollbar-track {
+  background: transparent;
+  border: none;
+  box-shadow: none;
+}
+.rocket-scrollbar-h::-webkit-scrollbar-thumb {
+  background-image: url('/rotated-rocket.webp');
+  background-size: 40px 40px;
+  background-position: center;
+  background-color: transparent;
+  background-repeat: no-repeat;
+  border: none;
+  border-radius: 0;
+  box-shadow: none;
+}
+.rocket-scrollbar-h::-webkit-scrollbar-corner {
+  background: transparent;
 }
 
 /* ── Driver.js Onboarding Tour ── */

@@ -7,7 +7,7 @@ export function JobSelector({ jobs, activeJob, setActiveJob }: any) {
   if (!jobs || jobs.length === 0) return null;
 
   return (
-    <div className="flex gap-3 mb-4 overflow-x-auto pb-2 scrollbar-hide">
+    <div className="flex gap-3 mb-2 overflow-x-auto pb-8 rocket-scrollbar-h">
       {jobs.map((job: any) => (
         <button
           key={job._id}
